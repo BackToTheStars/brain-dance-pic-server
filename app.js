@@ -1,3 +1,5 @@
+require('./models/db');
+
 var createError = require('http-errors');
 var express = require('express');
 var path = require('path');
@@ -10,12 +12,6 @@ var imagesRouter = require('./routes/images');
 var usersRouter = require('./routes/users');
 
 var app = express();
-
-mongoose.connect('mongodb://localhost:27017/local',
-  {
-    useNewUrlParser: true
-  }
-);
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console, "connection error: "));

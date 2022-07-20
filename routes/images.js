@@ -21,11 +21,9 @@ router.get('/', function(req, res, next) {
 
 
 router.post('/upload', upload.single('file'), function (req, res, next) {
-  //console.log(JSON.stringify(req.file))
-
-  const image = new imageModel(
-
-    {
+  try {
+    //console.log(JSON.stringify(req.file))
+    const image = new imageModel({
       fieldname: req.file.fieldname,
       originalname: req.file.originalname,
       encoding: req.file.encoding,
@@ -34,18 +32,14 @@ router.post('/upload', upload.single('file'), function (req, res, next) {
       filename: req.file.filename,
       path: req.file.path,
       size: req.file.size,
-    }
+    });
 
-  );
-
-  try {
     image.save();
     res.json('ok');
   } catch (error) {
-    res.json(error);
+    next(error);
   }
-
-})
+});
 
 
 module.exports = router;
