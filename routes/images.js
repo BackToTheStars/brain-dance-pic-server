@@ -1,6 +1,7 @@
 var express = require('express')
 var router = express.Router()
 var multer  = require('multer')
+var auth_token = "1234"
 
 const imageModel = require("../models/image");
 
@@ -22,6 +23,20 @@ router.get('/', function(req, res, next) {
 
 router.post('/upload', upload.single('file'), function (req, res, next) {
   try {
+
+    //console.log(JSON.stringify(req.headers));
+    let token = req.headers['authorization'];
+    token = token.replace(/^Bearer\s+/, "");
+
+    if (token === auth_token) {
+      //console.log('authorised');
+    } else {
+      return res.json({
+        success: false,
+        message: 'not authorised'
+      });
+    }
+
     //console.log(JSON.stringify(req.file))
     const image = new imageModel({
       fieldname: req.file.fieldname,
