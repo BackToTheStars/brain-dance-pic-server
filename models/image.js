@@ -1,38 +1,30 @@
 const mongoose = require("mongoose");
 const ImageSchema = new mongoose.Schema({
-  fieldname: {
+  status: {
     type: String,
     //required: true,
-    default: "",
+    default: "new",
 
   },
-  originalname: {
-    type: String,
-    default: "",
-  },
-  encoding: {
-    type: String,
-    default: "",
-  },
-  mimetype: {
-    type: String,
-    default: "",
-  },
-  destination: {
-    type: String,
-    default: "",
-  },
-  filename: {
-    type: String,
-    default: "",
+  server: {
+    type: Number,
+    default: 1,
   },
   path: {
     type: String,
     default: "",
   },
-  size: {
+  fileType: {
     type: String,
+    default: "image",
+  },
+  info: {
+    type: Object,
     default: "",
+  },
+  format: {
+    type: Number,
+    default: 1,
   },
 });
 const Image = mongoose.model("Image", ImageSchema);
