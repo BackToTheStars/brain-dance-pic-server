@@ -3,6 +3,8 @@ var router = express.Router();
 var multer = require('multer');
 var fs = require('fs');
 var path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const moment = require('moment');
 
 const secretKey = process.env.JWT_SECRET_STATIC;
 const host = process.env.HOST || 'http://localhost:3003';
@@ -69,13 +71,41 @@ router.post(
         return res.json('not ok');
       }
 
-      const dir = path.join(__dirname, '../static/images/' + hash);
+      const year = moment(new Date()).format('YYYY');
+      const month = moment(new Date()).format('MMM').toLowerCase();
+      const numberDate = moment(new Date()).format('DD');
+
+      const dirYear = path.join(__dirname, '../static/images/' + year);
+      const dirMonth = path.join(
+        __dirname,
+        '../static/images/' + year + '/' + month
+      );
+      const dirNumberDate = path.join(
+        __dirname,
+        '../static/images/' + year + '/' + month + '/' + numberDate
+      );
+
+      if (!fs.existsSync(dirYear)) {
+        fs.mkdirSync(dirYear);
+      }
+
+      if (!fs.existsSync(dirMonth)) {
+        fs.mkdirSync(dirMonth);
+      }
+
+      if (!fs.existsSync(dirNumberDate)) {
+        fs.mkdirSync(dirNumberDate);
+      }
+
+      /*const dir = path.join(__dirname, '../static/images/' + hash);
 
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir);
-      }
+      }*/
 
-      const ts = new Date().getTime();
+      //const ts = new Date().getTime();
+
+      const imageUUID = uuidv4();
 
       const extArray = req.file.mimetype.split('/');
       const extension = extArray[extArray.length - 1];
@@ -86,10 +116,29 @@ router.post(
       );
       const newPath = path.join(
         __dirname,
-        '../static/images/' + hash + '/' + ts + '.' + extension
+        '../static/images/' +
+          year +
+          '/' +
+          month +
+          '/' +
+          numberDate +
+          '/' +
+          imageUUID +
+          '.' +
+          extension
       );
 
-      const newPath2 = '/static/images/' + hash + '/' + ts + '.' + extension;
+      const newPath2 =
+        '/static/images/' +
+        year +
+        '/' +
+        month +
+        '/' +
+        numberDate +
+        '/' +
+        imageUUID +
+        '.' +
+        extension;
 
       fs.rename(oldPath, newPath, function (err) {
         if (err) throw err;

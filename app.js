@@ -6,12 +6,10 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-var multer = require('multer');
 const mongoose = require('mongoose');
 const cors = require('cors');
-
+const CronJob = require('cron').CronJob;
 var imagesRouter = require('./routes/images');
-
 var app = express();
 
 const db = mongoose.connection;
@@ -53,5 +51,18 @@ app.use(function (err, req, res, next) {
   res.status(err.status || 500);
   res.render('error');
 });
+
+/*var jobWeek = new CronJob(
+  '0 0 * * 0',
+  function () {
+    zip(
+      './static',
+      './backup/backup' + '-week-' + new Date().getTime() + '.zip'
+    );
+  },
+  null,
+  true,
+  'America/Los_Angeles'
+);*/
 
 module.exports = app;
