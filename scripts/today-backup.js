@@ -1,3 +1,6 @@
 const { todayBackup } = require('../lib/backup');
 
-todayBackup();
+(async () => {
+  await todayBackup();
+  process.exit();
+})()

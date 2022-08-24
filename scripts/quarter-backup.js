@@ -1,3 +1,6 @@
 const { quarterBackup } = require('../lib/backup');
 
-quarterBackup();
+(async () => {
+  await quarterBackup();
+  process.exit();
+})();

@@ -1,3 +1,6 @@
 const { yearBackup } = require('../lib/backup');
 
-yearBackup();
+(async () => {
+  await yearBackup();
+  process.exit();
+})();

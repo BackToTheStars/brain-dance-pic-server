@@ -1,3 +1,6 @@
 const { weekBackup } = require('../lib/backup');
 
-weekBackup();
+(async () => {
+  await weekBackup();
+  process.exit();
+})();
