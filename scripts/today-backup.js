@@ -1,6 +1,7 @@
 const { todayBackup } = require('../lib/backup');
 
 (async () => {
-  await todayBackup();
+  const result = await todayBackup();
+  console.log({ result });
   process.exit();
 })()
