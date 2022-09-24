@@ -8,7 +8,7 @@ const jobDay = new CronJob(
   '0 1 * * *',
   async () => {
     if (
-      moment().utc().format('DD') == '24' &&
+      moment().utc().format('DD') == '01' &&
       moment().utc().format('MM') != '01'
     ) {
       const filesDay = fs.readdirSync(backupBasePath + 'day');
