@@ -72,9 +72,9 @@ router.post(
         return res.json('not ok');
       }
 
-      const year = moment(new Date()).format('YYYY');
-      const month = moment(new Date()).format('MM');
-      const numberDate = moment(new Date()).format('DD');
+      const year = moment(new Date()).utc().format('YYYY');
+      const month = moment(new Date()).utc().format('MM');
+      const numberDate = moment(new Date()).utc().format('DD');
 
       const dirYear = staticImagesBasePath + year;
       const dirMonth = staticImagesBasePath + year + '/' + month;

@@ -8,7 +8,6 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const CronJob = require('cron').CronJob;
 var imagesRouter = require('./routes/images');
 var app = express();
 
@@ -52,17 +51,6 @@ app.use(function (err, req, res, next) {
   res.render('error');
 });
 
-/*var jobWeek = new CronJob(
-  '0 0 * * 0',
-  function () {
-    zip(
-      './static',
-      './backup/backup' + '-week-' + new Date().getTime() + '.zip'
-    );
-  },
-  null,
-  true,
-  'America/Los_Angeles'
-);*/
+
 
 module.exports = app;

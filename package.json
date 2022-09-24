@@ -10,7 +10,10 @@
     "week-backup": "node ./scripts/week-backup.js",
     "month-backup": "node ./scripts/month-backup.js",
     "quarter-backup": "node ./scripts/quarter-backup.js",
-    "year-backup": "node ./scripts/year-backup.js"
+    "year-backup": "node ./scripts/year-backup.js",
+    "restore": "node ./scripts/restore.js",
+    "cron": "node ./cron.js"
+
   },
   "dependencies": {
     "adm-zip": "^0.5.9",
