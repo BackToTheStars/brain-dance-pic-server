@@ -5,7 +5,7 @@ const { staticImagesBasePath, backupBasePath } = require('./config/path');
 const { todayBackup, monthBackup, yearBackup } = require('./lib/backup');
 
 const jobDay = new CronJob(
-  '* * * * * *',
+  '0 1 * * *',
   async () => {
     if (
       moment().utc().format('DD') == '24' &&
