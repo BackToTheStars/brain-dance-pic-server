@@ -3,7 +3,6 @@ const fs = require('fs');
 const { staticImagesBasePath, backupBasePath } = require('../config/path');
 require('../models/db');
 const imageModel = require('../models/image');
-let numberFiles = 0;
 
 const restoreBackup = async (pathToBackup) => {
   const zip = new AdmZip(pathToBackup);
@@ -13,9 +12,14 @@ const restoreBackup = async (pathToBackup) => {
 
   const images = JSON.parse(fs.readFileSync(pathToDB, 'utf8'));
 
-  numberFiles += Object.keys(images).length;
-
-  await imageModel.insertMany(images, { ordered: false });
+  await imageModel
+    .insertMany(images, { ordered: false })
+    .then(function () {
+      console.log('Data inserted');
+    })
+    .catch(function (error) {
+      console.log(error);
+    });
 
   if (fs.existsSync(pathToDB)) {
     fs.unlinkSync(pathToDB);
@@ -28,24 +32,25 @@ const start = async () => {
 
     if (firstArg == 'full') {
       const filesDay = fs.readdirSync(backupBasePath + 'day');
-      filesDay.forEach(async (file) => {
+
+      for (const file of filesDay) {
         await restoreBackup(backupBasePath + 'day/' + file);
-      });
+      }
 
       const filesMonth = fs.readdirSync(backupBasePath + 'month');
-      filesMonth.forEach(async (file) => {
+
+      for (const file of filesMonth) {
         await restoreBackup(backupBasePath + 'month/' + file);
-      });
+      }
 
       const filesYear = fs.readdirSync(backupBasePath + 'year');
-      filesYear.forEach(async (file) => {
+
+      for (const file of filesYear) {
         await restoreBackup(backupBasePath + 'year/' + file);
-      });
+      }
     } else {
       await restoreBackup(backupBasePath + firstArg);
-      const filesBackup = fs.readdirSync(backupBasePath + 'month');
     }
-    console.log(numberFiles + ' files restored');
     console.log('restore completed');
     process.exit();
   } catch (err) {
