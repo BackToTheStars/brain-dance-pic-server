@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/local';
+const { MONGO_URL } = require('../config/db');
 
 mongoose.connect(MONGO_URL, {
   useUnifiedTopology: true,

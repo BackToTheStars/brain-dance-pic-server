@@ -1,3 +1,4 @@
+require('../config');
 const { getToken } = require('../lib/game');
 
 console.log(
