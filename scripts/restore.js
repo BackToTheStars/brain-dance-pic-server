@@ -1,60 +1,39 @@
-const AdmZip = require('adm-zip');
-const fs = require('fs');
-const { staticImagesBasePath, backupBasePath } = require('../config/path');
-require('../models/db');
-const imageModel = require('../models/image');
-
-const restoreBackup = async (pathToBackup) => {
-  const zip = new AdmZip(pathToBackup);
-  zip.extractAllTo(staticImagesBasePath, true);
-
-  const pathToDB = staticImagesBasePath + 'images.json';
-
-  const images = JSON.parse(fs.readFileSync(pathToDB, 'utf8'));
-
-  await imageModel
-    .insertMany(images, { ordered: false })
-    .then(function () {
-      console.log('Data inserted');
-    })
-    .catch(function (error) {
-      console.log(error);
-    });
-
-  if (fs.existsSync(pathToDB)) {
-    fs.unlinkSync(pathToDB);
-  }
-};
+require('../config');
+require('../models/connect');
+const {
+  addLog,
+  TYPE_REPORT_RESTORE,
+  TYPE_REPORT_RESTORE_ERROR,
+} = require('../lib/logs');
+const {
+  restoreBackup,
+  restoreBackupFolder,
+  checkIfExists,
+} = require('../lib/restore');
 
 const start = async () => {
   try {
-    const firstArg = process.argv.slice(2);
+    const firstArg = process.argv[2];
+    const reports = {};
 
     if (firstArg == 'full') {
-      const filesDay = fs.readdirSync(backupBasePath + 'day');
-
-      for (const file of filesDay) {
-        await restoreBackup(backupBasePath + 'day/' + file);
-      }
-
-      const filesMonth = fs.readdirSync(backupBasePath + 'month');
-
-      for (const file of filesMonth) {
-        await restoreBackup(backupBasePath + 'month/' + file);
-      }
-
-      const filesYear = fs.readdirSync(backupBasePath + 'year');
-
-      for (const file of filesYear) {
-        await restoreBackup(backupBasePath + 'year/' + file);
+      for (let type of ['year', 'month', 'day']) {
+        if (checkIfExists(type)) {
+          reports[type] = await restoreBackupFolder(type);
+        }
       }
     } else {
-      await restoreBackup(backupBasePath + firstArg);
+      reports['file'] = await restoreBackup(firstArg);
     }
-    console.log('restore completed');
+
+    console.log('RESTORE REPORTS');
+    console.log(JSON.stringify(reports, null, 2));
+    await addLog(TYPE_REPORT_RESTORE, firstArg, reports);
     process.exit();
   } catch (err) {
+    console.log('RESTORE ERROR');
     console.log(err);
+    await addLog(TYPE_REPORT_RESTORE_ERROR, process.argv, err);
     process.exit();
   }
 };
