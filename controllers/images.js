@@ -11,6 +11,9 @@ const { getError } = require('../lib/errors');
 
 const uploadImage = async (req, res, next) => {
   try {
+    if (!req.file) {
+      throw getError('no file provided', 400);
+    }
     if (!validMimeTypes.includes(req.file.mimetype)) {
       throw getError('not correct image extension', 400);
     }
@@ -77,6 +80,10 @@ const uploadImage = async (req, res, next) => {
 const getById = async (req, res, next) => {
   try {
     const image = await imageModel.findById(req.params.id);
+
+    if (!image) {
+      throw getError('image not found', 404);
+    }
     res.json({
       src: HOST + image.path,
       item: image,
