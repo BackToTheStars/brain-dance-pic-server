@@ -1,4 +1,5 @@
 require('./config');
+const axios = require('axios');
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -8,7 +9,10 @@ const streamifier = require('streamifier');
 const app = express();
 const port = process.env.AUDIO_PORT || 3010;
 const { authenticateToken, checkOperation } = require('./middlewares/images');
-const { OPERATION_UPLOAD } = require('./config/images');
+const {
+  OPERATION_UPLOAD,
+  OPERATION_DOWNLOAD_AND_SAVE,
+} = require('./config/images');
 const { AUDIO_HOST } = require('./config/url');
 const { MONGO_URL } = require('./config/db');
 
@@ -98,6 +102,68 @@ app.post(
   }
 );
 
+const getMimeType = (url) => {
+  const ext = getExt(url);
+  switch (ext) {
+    case 'mp4':
+      return 'video/mp4';
+    case 'mp3':
+      return 'audio/mpeg';
+    default:
+      return 'video/mp4';
+  }
+};
+
+const downloadAndSaveAudio = async (audioUrl) => {
+  return new Promise(async (resolve, reject) => {
+    const filename = `${uuidv4()}.${getExt(audioUrl)}`;
+    const response = await axios.get(audioUrl, {
+      responseType: 'stream',
+    });
+    const writeStream = gfs.openUploadStream(filename, {
+      metadata: {
+        mimetype: getMimeType(audioUrl),
+      },
+    });
+    response.data.pipe(writeStream);
+
+    writeStream.on('close', (file) => {
+      resolve(filename);
+    });
+    writeStream.on('finish', (file) => {
+      resolve(filename);
+    });
+    writeStream.on('error', (error) => {
+      reject(error);
+    });
+  });
+};
+
+app.post(
+  '/audios/download-and-save',
+  authenticateToken,
+  checkOperation(OPERATION_DOWNLOAD_AND_SAVE),
+  async (req, res, next) => {
+    try {
+      const { audioUrl } = req.body;
+
+      if (!audioUrl) {
+        return res.status(400).json({ message: 'No audio URL provided.' });
+      }
+
+      const filename = await downloadAndSaveAudio(audioUrl);
+      res.json({
+        src: `${AUDIO_HOST}/audios/${filename}`,
+        item: {
+          filename,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 app.get('/audios/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
@@ -152,6 +218,14 @@ app.get('/audios/:filename', async (req, res) => {
       error: JSON.stringify(error),
     });
   }
+});
+
+app.use((error, req, res, next) => {
+  console.error(error);
+  res.status(500).json({
+    message: 'An error occurred.',
+    error: JSON.stringify(error),
+  });
 });
 
 app.listen(port, () => {
