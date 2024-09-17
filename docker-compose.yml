@@ -10,6 +10,7 @@ services:
       MONGO_URL: mongodb://mongo:27017/media
     volumes:
       - .:/app
+      - /app/node_modules
     networks:
       - app-network
 
