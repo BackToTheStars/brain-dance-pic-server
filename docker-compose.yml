@@ -1,0 +1,30 @@
+version: '3'
+services:
+  media-app:
+    build: .
+    ports:
+      - "${MEDIA_PORT:-3011}:${MEDIA_PORT:-3011}"
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URL: mongodb://mongo:27017/media
+    volumes:
+      - .:/app
+    networks:
+      - app-network
+
+  mongo:
+    image: mongo:latest
+    # ports:
+    #   - "27018:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+volumes:
+  mongo-data:
+  
+networks:
+  app-network:
+    driver: bridge

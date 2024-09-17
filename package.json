@@ -14,7 +14,9 @@
     "restore": "node ./scripts/restore.js",
     "cron": "node ./cron.js",
     "dev:audio": "nodemon ./audio.js",
-    "start:audio": "node ./audio.js"
+    "start:audio": "node ./audio.js",
+    "dev:media": "nodemon ./media.js",
+    "media": "node ./media.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",
