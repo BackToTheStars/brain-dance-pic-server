@@ -122,7 +122,7 @@ const downloadAndSaveAudio = async (audioUrl) => {
     });
     const writeStream = gfs.openUploadStream(filename, {
       metadata: {
-        mimetype: getMimeType(audioUrl),
+        mimetype: getMimeType('audios', audioUrl),
       },
     });
     response.data.pipe(writeStream);

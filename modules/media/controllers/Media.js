@@ -28,7 +28,7 @@ function createMediaController(contentType) {
       const { originalname, buffer } = req.file;
       const extension = getExtension(originalname);
       const filename = `${uuidv4()}.${extension}`;
-      const mimetype = req.file.mimetype || getMimeType(extension);
+      const mimetype = req.file.mimetype || getMimeType(contentType, extension);
 
       const metadata = {
         ...req.body.metadata,
@@ -77,7 +77,7 @@ function createMediaController(contentType) {
           message: 'Unsupported media type.',
         });
       }
-      const mimetype = getMimeType(extension);
+      const mimetype = getMimeType(contentType, extension);
 
       const response = await axios.get(mediaUrl, {
         responseType: 'arraybuffer',

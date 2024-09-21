@@ -8,11 +8,19 @@ const dMediaTypes = {
   audios: {
     mimeTypes: {
       mp3: 'audio/mpeg',
+      m4a: 'audio/mp4',
+      wav: 'audio/wav',
+      ogg: 'audio/ogg',
+      webm: 'audio/webm',
     },
   },
   videos: {
     mimeTypes: {
       mp4: 'video/mp4',
+      webm: 'video/webm',
+      ogg: 'video/ogg',
+      mov: 'video/quicktime',
+      avi: 'video/x-msvideo',
     },
   },
   images: {
@@ -21,19 +29,18 @@ const dMediaTypes = {
       jpeg: 'image/jpeg',
       png: 'image/png',
       gif: 'image/gif',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+      ico: 'image/x-icon',
     },
   },
 };
 
-const mimeTypes = mediaTypes.reduce((acc, type) => {
-  return {
-    ...acc,
-    ...dMediaTypes[type].mimeTypes,
-  };
-}, {});
-
-const getMimeType = (extension) => {
-  return mimeTypes[extension.toLowerCase()] || 'application/octet-stream';
+const getMimeType = (contentType, extension) => {
+  return (
+    dMediaTypes[contentType].mimeTypes[extension.toLowerCase()] ||
+    'application/octet-stream'
+  );
 };
 
 const hasMimeType = (mediaType, extension) => {
