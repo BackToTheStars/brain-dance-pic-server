@@ -1,0 +1,8 @@
+{
+  "name": "mongo-backups",
+  "version": "1.0.0",
+  "description": "MongoDB backups",
+  "dependencies": {
+    "mongoose": "^8.5.1"
+  }
+}

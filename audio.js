@@ -28,10 +28,7 @@ const upload = multer({
 let conn;
 let gfs;
 mongoose
-  .connect(MONGO_URL, {
-    useUnifiedTopology: true,
-    useNewUrlParser: true,
-  })
+  .connect(MONGO_URL)
   .then(() => {
     conn = mongoose.connection;
     gfs = new mongoose.mongo.GridFSBucket(conn.db, {

@@ -78,3 +78,5 @@ typings/
 static/
 
 .idea/
+
+backups/data
