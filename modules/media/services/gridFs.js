@@ -45,9 +45,19 @@ function getFileInfo(contentType, filename) {
   return bucket.find({ filename }).toArray();
 }
 
+async function removeFileFromGridFS(contentType, fileId) {
+  const bucket = getGridFSBucket(contentType);
+  try {
+    await bucket.delete(fileId);
+  } catch (error) {
+    throw error;
+  }
+}
+
 module.exports = {
   initGridFS,
   saveFileToGridFS,
   downloadFileFromGridFS,
   getFileInfo,
+  removeFileFromGridFS,
 };

@@ -1,6 +1,6 @@
 const { JWT_SECRET_STATIC } = require("../../../config/auth");
-const { getError } = require("../../../lib/errors");
-const { checkToken } = require("../../../lib/game");
+const { getError } = require("../../core/lib/errors");
+const { checkToken } = require("../lib/token");
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];

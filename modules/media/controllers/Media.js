@@ -5,6 +5,7 @@ const {
   saveFileToGridFS,
   downloadFileFromGridFS,
   getFileInfo,
+  removeFileFromGridFS,
 } = require('../services/gridFs');
 const { getMediaModel } = require('../models/Media');
 const { getMimeType, hasMimeType } = require('../../../config/media');
@@ -51,7 +52,10 @@ function createMediaController(contentType) {
 
       res.json({
         src: `${MEDIA_HOST}/${contentType}/${filename}`,
-        item: { filename },
+        item: {
+          _id: media._id,
+          filename,
+        },
       });
     } catch (error) {
       console.error(error);
@@ -104,7 +108,10 @@ function createMediaController(contentType) {
 
       res.json({
         src: `${MEDIA_HOST}/${contentType}/${filename}`,
-        item: { filename },
+        item: {
+          _id: media._id,
+          filename
+        },
       });
     } catch (error) {
       console.error(error);
@@ -180,6 +187,37 @@ function createMediaController(contentType) {
     }
   }
 
+  async function removeMedia(req, res) {
+    try {
+      const { id } = req.params;
+
+      const media = await Media.findById(id);
+
+      if (!media) {
+        return res.status(404).json({ message: 'Media not found' });
+      }
+      const files = await getFileInfo(contentType, media.filename);
+      if (!files || files.length === 0) {
+        return res.status(404).send('File not found in storage');
+      }
+
+      const file = files[0];
+      // Получаем информацию о файле
+      await removeFileFromGridFS(contentType, file._id);
+
+      // Удаляем метаданные из MongoDB
+      await Media.findByIdAndDelete(id);
+
+      res.json({ message: 'Media removed successfully' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        message: 'An error occurred during removal.',
+        error: error.message,
+      });
+    }
+  }
+
   // Placeholder for specific operations per media type
   // For example, getAudioFragment for audio, getVideoFragment for video
 
@@ -187,6 +225,7 @@ function createMediaController(contentType) {
     uploadMedia: [upload.single('file'), uploadMedia],
     downloadAndSaveMedia,
     getMedia,
+    removeMedia,
     // Add other methods as needed
   };
 }

@@ -2,13 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const { error404, errorAll } = require('./middlewares/errors');
 
 const { MONGO_URL } = require('./config/db');
 
 const { createMediaRouter } = require('./modules/media/routes/media');
 const { initGridFS } = require('./modules/media/services/gridFs');
 const { mediaTypes } = require('./config/media');
+const { error404, errorAll } = require('./modules/core/middlewares/errors');
 
 const app = express();
 const port = process.env.MEDIA_PORT || 3011;

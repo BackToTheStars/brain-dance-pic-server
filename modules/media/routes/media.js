@@ -31,6 +31,7 @@ function createMediaRouter(contentType) {
   );
 
   router.get('/:filename', controller.getMedia);
+  router.delete('/:id', controller.removeMedia);
 
   // Add specific routes if needed
   // For example, router.get('/:filename/fragment', controller.getMediaFragment);
