@@ -1,5 +1,0 @@
-# Ежедневный бэкап в 2:00 ночи
-# 0 2 * * * /scripts/daily_backup.sh >> /backups/logs/daily_backup.log 2>&1
-
-# Ежемесячное объединение бэкапов в 3:00 ночи первого числа каждого месяца
-# 0 3 1 * * /scripts/monthly_merge.sh >> /backups/logs/monthly_merge.log 2>&1
