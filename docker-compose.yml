@@ -3,7 +3,7 @@ services:
   media-app:
     build: .
     ports:
-      - "${MEDIA_PORT:-3011}:${MEDIA_PORT:-3011}"
+      - "${MEDIA_PORT}:${MEDIA_PORT}"
     depends_on:
       - mongo
     environment:
@@ -12,16 +12,16 @@ services:
       - .:/app
       - /app/node_modules
     networks:
-      - app-network
+      - ${APP_NETWORK}
 
   mongo:
     image: mongo:4.4
     # ports:
     #   - "27018:27017"
     volumes:
-      - mongo-data:/data/db
+      - ./mongo_data:/data/db
     networks:
-      - app-network
+      - ${APP_NETWORK}
 
   mongo-backup:
     build:
@@ -37,11 +37,11 @@ services:
       - MONGO_DB=media
       - MONGO_URL=mongodb://mongo:27017/media
     networks:
-      - app-network
+      - ${APP_NETWORK}
 
 volumes:
   mongo-data:
-  
+
 networks:
-  app-network:
+  ${APP_NETWORK}:
     driver: bridge
