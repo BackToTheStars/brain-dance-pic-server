@@ -12,7 +12,7 @@ services:
       - .:/app
       - /app/node_modules
     networks:
-      - ${APP_NETWORK}
+      - app-network
 
   mongo:
     image: mongo:4.4
@@ -21,7 +21,7 @@ services:
     volumes:
       - ./mongo_data:/data/db
     networks:
-      - ${APP_NETWORK}
+      - app-network
 
   mongo-backup:
     build:
@@ -37,11 +37,11 @@ services:
       - MONGO_DB=media
       - MONGO_URL=mongodb://mongo:27017/media
     networks:
-      - ${APP_NETWORK}
+      - app-network
 
 volumes:
   mongo-data:
 
 networks:
-  ${APP_NETWORK}:
+  app-network:
     driver: bridge
