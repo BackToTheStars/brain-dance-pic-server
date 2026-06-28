@@ -14,7 +14,7 @@ module.exports = {
   },
   checkToken: function (secret, token) {
     return new Promise((resolve, reject) => {
-      jwt.verify(token, secret, (err, payload) => {
+      jwt.verify(token, secret, { algorithms: ['HS256'] }, (err, payload) => {
         //console.log(err)
         if (err) return reject(err);
         if (!payload.timestamp || payload.timestamp < new Date().getTime())

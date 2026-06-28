@@ -1,20 +1,13 @@
-# Используем образ Node.js
-FROM node:18-alpine
+FROM node:22-alpine
 
-# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
 COPY package*.json ./
 
-# Устанавливаем зависимости
-RUN npm install
+RUN npm ci --omit=dev
 
-# Копируем остальной код
 COPY . .
 
-# Открываем порт
 EXPOSE ${MEDIA_PORT:-3011}
 
-# Запускаем приложение
-CMD ["node", "media.js"]
+CMD ["npm", "run", "media"]

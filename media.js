@@ -33,7 +33,7 @@ mediaTypes.forEach((type) => {
   app.use(`/${type}`, createMediaRouter(type));
 });
 
-app.use('*', error404);
+app.use(error404);
 app.use(errorAll);
 
 app.listen(port, () => {

@@ -1,5 +1,5 @@
-# Используем образ Node.js с установленным bash
-FROM node:18-alpine
+# Образ для сервиса бэкапов (LTS). mongodb-tools совместимы с mongo:7.0.
+FROM node:22-alpine
 
 # Устанавливаем необходимые пакеты
 RUN apk update && \

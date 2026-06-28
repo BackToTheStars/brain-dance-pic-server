@@ -2,21 +2,28 @@
   "name": "brain-dance-pic-server",
   "version": "0.0.0",
   "private": true,
+  "main": "media.js",
   "scripts": {
     "token": "node ./scripts/tokens.js",
     "dev:media": "nodemon ./media.js",
-    "media": "node ./media.js"
+    "media": "node ./media.js",
+    "start": "node ./media.js"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
-    "axios": "^1.7.3",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.5.1",
-    "multer": "^1.4.5-lts.1",
-    "nodemon": "^3.1.4",
+    "axios": "^1.17.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.6.3",
+    "multer": "^2.0.2",
     "streamifier": "^0.1.1",
-    "uuid": "^10.0.0"
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }

@@ -1,7 +1,14 @@
-version: '3'
+# Стек: Node 22 + MongoDB 7.0 (project-name media-v7).
+# Старые данные (./mongo_data) НЕ используются — mongo стартует пустым (данные в ./mongo_data_v7).
+# Legacy-стек (node18/mongo4.4) удалён; при необходимости отката — история git.
+name: media-v7
+
 services:
   media-app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: media-app-v7
     ports:
       - "${MEDIA_PORT}:${MEDIA_PORT}"
     depends_on:
@@ -12,36 +19,35 @@ services:
       - .:/app
       - /app/node_modules
     networks:
-      - app-network
+      - media-v7-network
 
   mongo:
-    image: mongo:4.4
+    image: mongo:7.0
+    container_name: media-mongo-v7
     # ports:
     #   - "27018:27017"
     volumes:
-      - ./mongo_data:/data/db
+      - ./mongo_data_v7:/data/db
     networks:
-      - app-network
+      - media-v7-network
 
   mongo-backup:
     build:
       context: .
       dockerfile: backups/Dockerfile
+    container_name: media-mongo-backup-v7
     depends_on:
       - mongo
     volumes:
-      - ./backups/data:/backups
+      - ./backups/data_v7:/backups
     environment:
       - MONGO_HOST=mongo
       - MONGO_PORT=27017
       - MONGO_DB=media
       - MONGO_URL=mongodb://mongo:27017/media
     networks:
-      - app-network
-
-volumes:
-  mongo-data:
+      - media-v7-network
 
 networks:
-  app-network:
+  media-v7-network:
     driver: bridge

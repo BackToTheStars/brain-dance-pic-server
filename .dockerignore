@@ -5,3 +5,7 @@ Dockerfile
 docker-compose.yml
 backups/data
 mongo_data
+
+mongo_data_v7
+backups/data_v7
+*.log
