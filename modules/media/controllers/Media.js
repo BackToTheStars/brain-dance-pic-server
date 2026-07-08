@@ -11,11 +11,27 @@ const { getMediaModel } = require('../models/Media');
 const { getMimeType, hasMimeType } = require('../../../config/media');
 const { MEDIA_HOST } = require('../../../config/url');
 
+// Wikimedia и ряд CDN отдают 403 на запросы без осмысленного User-Agent
+// (их User-Agent policy). Задаём описательный UA для серверного скачивания.
+const DOWNLOAD_USER_AGENT =
+  process.env.DOWNLOAD_USER_AGENT ||
+  'BrainDanceMediaBot/1.0 (+https://brain-dance.net)';
+
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 function getExtension(filename) {
   return filename.split('.').pop();
+}
+
+// Расширение из URL: берём из pathname, чтобы query-строка (?token=...) не попадала
+// в расширение. При невалидном/относительном URL — откат на обычный разбор строки.
+function getExtensionFromUrl(mediaUrl) {
+  try {
+    return getExtension(new URL(mediaUrl).pathname);
+  } catch {
+    return getExtension(mediaUrl);
+  }
 }
 
 function createMediaController(contentType) {
@@ -74,7 +90,7 @@ function createMediaController(contentType) {
         return res.status(400).json({ message: 'No media URL provided.' });
       }
 
-      const extension = getExtension(mediaUrl);
+      const extension = getExtensionFromUrl(mediaUrl);
       const filename = `${uuidv4()}.${extension}`;
       if (!hasMimeType(contentType, extension)) {
         return res.status(400).json({
@@ -85,6 +101,10 @@ function createMediaController(contentType) {
 
       const response = await axios.get(mediaUrl, {
         responseType: 'arraybuffer',
+        headers: {
+          'User-Agent': DOWNLOAD_USER_AGENT,
+          Accept: '*/*',
+        },
       });
       const buffer = Buffer.from(response.data);
 
