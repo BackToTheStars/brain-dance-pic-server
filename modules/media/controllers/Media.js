@@ -8,7 +8,11 @@ const {
   removeFileFromGridFS,
 } = require('../services/gridFs');
 const { getMediaModel } = require('../models/Media');
-const { getMimeType, hasMimeType } = require('../../../config/media');
+const {
+  getMimeType,
+  hasMimeType,
+  getUploadLimit,
+} = require('../../../config/media');
 const { MEDIA_HOST } = require('../../../config/url');
 
 // Wikimedia и ряд CDN отдают 403 на запросы без осмысленного User-Agent
@@ -18,7 +22,26 @@ const DOWNLOAD_USER_AGENT =
   'BrainDanceMediaBot/1.0 (+https://brain-dance.net)';
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+
+const toMb = (bytes) => Math.round(bytes / (1024 * 1024));
+
+// multer отдаёт LIMIT_FILE_SIZE обычной ошибкой без statusCode, и клиент получил бы
+// невнятную 500 «На сервере произошла ошибка» — переводим её в 413 с размером лимита.
+function createUploadMiddleware(contentType) {
+  const limit = getUploadLimit(contentType);
+  const upload = multer({ storage, limits: { fileSize: limit } });
+
+  return (req, res, next) =>
+    upload.single('file')(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          message: `Файл больше допустимого размера (${toMb(limit)} МБ).`,
+        });
+      }
+      next(err);
+    });
+}
 
 function getExtension(filename) {
   return filename.split('.').pop();
@@ -44,8 +67,14 @@ function createMediaController(contentType) {
       }
       const { originalname, buffer } = req.file;
       const extension = getExtension(originalname);
+      // Расширение проверяем так же, как в download-and-save: раньше upload принимал
+      // любой файл, а mimetype брался из запроса (то есть от клиента) и потом отдавался
+      // в Content-Type. Теперь тип определяется только нашей таблицей.
+      if (!hasMimeType(contentType, extension)) {
+        return res.status(400).json({ message: 'Unsupported media type.' });
+      }
       const filename = `${uuidv4()}.${extension}`;
-      const mimetype = req.file.mimetype || getMimeType(contentType, extension);
+      const mimetype = getMimeType(contentType, extension);
 
       const metadata = {
         ...req.body.metadata,
@@ -194,6 +223,9 @@ function createMediaController(contentType) {
         res.writeHead(200, {
           'Content-Length': fileSize,
           'Content-Type': contentTypeHeader,
+          // без этого заголовка pdf.js считает, что сервер не умеет диапазоны,
+          // и качает весь документ целиком вместо ленивой подгрузки страниц
+          'Accept-Ranges': 'bytes',
         });
         const downloadStream = downloadFileFromGridFS(contentType, filename);
         downloadStream.pipe(res);
@@ -242,7 +274,7 @@ function createMediaController(contentType) {
   // For example, getAudioFragment for audio, getVideoFragment for video
 
   return {
-    uploadMedia: [upload.single('file'), uploadMedia],
+    uploadMedia: [createUploadMiddleware(contentType), uploadMedia],
     downloadAndSaveMedia,
     getMedia,
     removeMedia,

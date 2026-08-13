@@ -13,7 +13,14 @@ const { error404, errorAll } = require('./modules/core/middlewares/errors');
 const app = express();
 const port = process.env.MEDIA_PORT || 3011;
 
-app.use(cors());
+// exposedHeaders: кросс-доменному коду (pdf.js в клиенте) по умолчанию видны только
+// safelisted-заголовки ответа. Без Accept-Ranges/Content-Range он не видит поддержку
+// диапазонов и качает документ целиком.
+app.use(
+  cors({
+    exposedHeaders: ['Accept-Ranges', 'Content-Range', 'Content-Length'],
+  })
+);
 app.use(express.json({ limit: '350mb' }));
 app.use(express.urlencoded({ limit: '350mb', extended: true }));
 
