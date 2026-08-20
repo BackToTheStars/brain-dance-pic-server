@@ -70,9 +70,10 @@ async function probeVideo(req, res) {
     res.json({
       title: info.title,
       duration: info.duration,
-      // Форматы больше лимита из ответа не убираем: показывать их или нет —
-      // решение UI, media только помечает. Формат с неизвестным размером
-      // непомечен: влезет он или нет, выяснится на скачивании.
+      // Варианты больше лимита из ответа не убираем: показывать их или нет —
+      // решение UI, media только помечает. Размер здесь — сумма обеих
+      // дорожек. Вариант с неизвестным размером непомечен: влезет он или
+      // нет, выяснится на скачивании.
       formats: info.formats.map((format) => ({
         ...format,
         tooLarge: format.filesize !== null && format.filesize > limit,
@@ -105,13 +106,14 @@ async function downloadVideo(req, res) {
       return res.status(400).json({ message: 'No format id provided.' });
     }
 
-    // Отдельный probe до скачивания: он и проверяет, что формат существует и
-    // progressive, и даёт размер — отказать по лимиту надо до старта.
+    // Отдельный probe до скачивания: он и проверяет, что вариант всё ещё
+    // существует, и даёт размер — отказать по лимиту надо до старта, а у
+    // пары дорожек лимитом меряется сумма.
     const info = await probe(url);
     const format = info.formats.find((item) => item.formatId === String(formatId));
     if (!format) {
       return res.status(400).json({
-        message: 'Формат не найден среди progressive-форматов видео.',
+        message: 'Формат не найден среди вариантов, предложенных probe.',
       });
     }
     if (format.filesize !== null && format.filesize > limit) {

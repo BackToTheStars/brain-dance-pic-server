@@ -8,9 +8,15 @@ const { v4: uuidv4 } = require('uuid');
 const TMP_ROOT =
   process.env.YOUTUBE_TMP_DIR || path.join(os.tmpdir(), 'brain-media-youtube');
 
-// Каждая загрузка — в собственном подкаталоге: yt-dlp кладёт рядом с итоговым
-// файлом ещё и <name>.part, поэтому и считать размер, и убирать проще каталогом
-// целиком, не угадывая имена.
+// Промежуточные дорожки склейки: yt-dlp кладёт их рядом с результатом под
+// именем <имя>.f<format_id>.<ext>, у недокачанной сверху ещё .part. Отличать
+// их от итогового файла нужно дважды — при подсчёте скачанного и при поиске
+// результата.
+const TRACK_FILE_RE = /\.f\d+\.[^.]+(\.part)?$/;
+
+// Каждая загрузка — в собственном подкаталоге: рядом с итоговым файлом лежат
+// и .part, и обе промежуточные дорожки, поэтому считать размер и убирать
+// проще каталогом целиком, не угадывая имена.
 function createJobDir() {
   const dir = path.join(TMP_ROOT, uuidv4());
   fs.mkdirSync(dir, { recursive: true });
@@ -33,55 +39,75 @@ function removeJobDir(dir) {
   }
 }
 
-// Суммарный размер содержимого каталога задания: итоговый файл плюс .part.
-// По нему сторожим лимит во время скачивания.
-function getDirSize(dir) {
-  let total = 0;
+// Плоский список файлов каталога задания.
+function listFiles(dir) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return 0;
+    return [];
   }
 
+  const files = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    try {
-      total += entry.isDirectory() ? getDirSize(full) : fs.statSync(full).size;
-    } catch {
-      // Файл мог быть переименован или удалён между readdir и stat —
-      // на следующей проверке размер посчитается заново.
+    if (entry.isDirectory()) {
+      files.push(...listFiles(full));
+      continue;
     }
+    files.push(full);
   }
 
-  return total;
+  return files;
 }
 
-// Итоговый файл задания: недокачанные (.part) и служебные (.ytdl) не в счёт.
-// Если файлов почему-то несколько — берём самый большой.
-function findResultFile(dir) {
-  let files;
+function fileSize(full) {
   try {
-    files = fs
-      .readdirSync(dir)
-      .filter((name) => !name.endsWith('.part') && !name.endsWith('.ytdl'))
-      .map((name) => path.join(dir, name))
-      .filter((full) => {
-        try {
-          return fs.statSync(full).isFile();
-        } catch {
-          return false;
-        }
-      });
+    return fs.statSync(full).size;
   } catch {
-    return null;
+    // Файл мог быть переименован или удалён между readdir и stat —
+    // на следующей проверке размер посчитается заново.
+    return 0;
   }
+}
+
+// Сколько байт задание уже скачало с YouTube. По этому числу сторожится лимит
+// во время скачивания, и файл склейки в него намеренно не входит: на этапе
+// merge в каталоге лежат и обе дорожки, и результат — около 2× итогового
+// размера, — так что общий размер каталога принял бы это за превышение.
+// Размер самого результата проверяется отдельно, после выхода yt-dlp.
+function getDownloadedSize(dir) {
+  const files = listFiles(dir);
+  const tracks = files.filter((full) =>
+    TRACK_FILE_RE.test(path.basename(full))
+  );
+  // Одиночный формат (progressive) промежуточных дорожек не создаёт: там
+  // скачанное — это всё содержимое каталога.
+  const counted = tracks.length > 0 ? tracks : files;
+
+  return counted.reduce((total, full) => total + fileSize(full), 0);
+}
+
+// Итоговый файл задания. Не в счёт: недокачанные (.part), служебные (.ytdl),
+// файл склейки в процессе (video.temp.mp4) и промежуточные дорожки — принять
+// дорожку за результат значило бы положить в GridFS видео без звука. Если
+// подходящих файлов почему-то несколько, берём самый большой.
+function findResultFile(dir) {
+  const files = listFiles(dir).filter((full) => {
+    const name = path.basename(full);
+    return (
+      !name.endsWith('.part') &&
+      !name.endsWith('.ytdl') &&
+      !/\.temp\.[^.]+$/.test(name) &&
+      !TRACK_FILE_RE.test(name)
+    );
+  });
 
   if (files.length === 0) {
     return null;
   }
 
-  return files.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
+  return files.sort((a, b) => fileSize(b) - fileSize(a))[0];
 }
 
 // Чистка при старте сервиса: после падения или перезапуска в каталоге могли
@@ -103,7 +129,7 @@ module.exports = {
   TMP_ROOT,
   createJobDir,
   removeJobDir,
-  getDirSize,
+  getDownloadedSize,
   findResultFile,
   cleanTmpRoot,
 };

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const {
   YTDLP_PROBE_TIMEOUT,
@@ -9,7 +9,7 @@ const {
 const {
   createJobDir,
   removeJobDir,
-  getDirSize,
+  getDownloadedSize,
   findResultFile,
 } = require('./tmp');
 
@@ -19,9 +19,20 @@ const {
 // HTTP-вызов, а не переписывание вызывающего кода.
 const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 
-// Как часто сверяем размер скачанного с лимитом. filesize_approx у YouTube
-// врёт в обе стороны, поэтому одного лишь --max-filesize мало.
+// Контейнер результата склейки. mp4 принимает и h264, и AAC-звук без
+// перекодирования, а клиент играет его везде.
+const MERGE_FORMAT = 'mp4';
+
+// Как часто сверяем скачанное с лимитом. filesize_approx у YouTube врёт в обе
+// стороны, поэтому одного лишь --max-filesize мало.
 const SIZE_CHECK_INTERVAL = 1000;
+
+// Порядок предпочтения кодеков внутри одного разрешения. h264 ложится в mp4
+// remux'ом и играется где угодно; vp9 и av1 в mp4 тоже лягут, но игрок может
+// их не взять, поэтому они — запасной вариант. Звук: mp4a (m4a) для mp4
+// родной, opus попадает туда нестандартно.
+const VIDEO_CODEC_ORDER = ['avc1', 'h264', 'vp9', 'vp09', 'av01'];
+const AUDIO_CODEC_ORDER = ['mp4a', 'opus'];
 
 // Коды ошибок слоя. Контроллер раскладывает их по HTTP-статусам и ничего не
 // знает ни про yt-dlp, ни про его коды возврата.
@@ -58,11 +69,44 @@ function assertSafeUrl(url) {
   }
 }
 
-// Идентификатор формата тоже уходит в argv (значение -f). Форматы YouTube
-// выглядят как '18', '22', '137+140' — ничего, кроме этого набора, не нужно.
+// Селектор формата тоже уходит в argv (значение -f). У нас он выглядит как
+// '18' (одиночный progressive) или '137+140' (пара дорожек) — ничего, кроме
+// этого набора, не нужно.
 function assertSafeFormatId(formatId) {
   if (typeof formatId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$/.test(formatId)) {
     throw layerError(ERR_INVALID, 'Некорректный идентификатор формата.');
+  }
+}
+
+// Своя группа процессов на posix: для склейки yt-dlp запускает ffmpeg
+// отдельным процессом, а Node снимает только сам yt-dlp. Переживший отмену
+// ffmpeg продолжил бы писать в каталог задания, который мы уже удаляем
+// (на Windows незакрытый файл вдобавок не даёт удалить каталог вовсе).
+const OWN_PROCESS_GROUP = process.platform !== 'win32';
+
+function killTree(child) {
+  if (!child.pid) {
+    return;
+  }
+
+  try {
+    if (OWN_PROCESS_GROUP) {
+      // Минус перед pid — «всей группе», то есть и yt-dlp, и его ffmpeg.
+      process.kill(-child.pid, 'SIGKILL');
+      return;
+    }
+    // На Windows групп процессов в этом смысле нет — дерево снимает taskkill.
+    // Синхронно: следом за убийством идёт уборка каталога.
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+    });
+  } catch {
+    // Группы уже нет (все вышли сами) — на всякий случай добиваем процесс.
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // Процесс завершился между проверкой и сигналом — убивать нечего.
+    }
   }
 }
 
@@ -77,6 +121,7 @@ function runYtDlp(args, { timeout, signal, onChild } = {}) {
         killSignal: 'SIGKILL',
         signal,
         windowsHide: true,
+        detached: OWN_PROCESS_GROUP,
       });
     } catch (error) {
       return reject(layerError(ERR_FAILED, error.message));
@@ -98,13 +143,16 @@ function runYtDlp(args, { timeout, signal, onChild } = {}) {
 
     child.on('error', (error) => {
       if (error.name === 'AbortError') {
+        // Node убил только yt-dlp; ffmpeg добираем группой прежде, чем
+        // вызывающий начнёт сносить каталог задания.
+        killTree(child);
         return reject(layerError(ERR_ABORTED, 'Загрузка отменена.'));
       }
       if (error.code === 'ENOENT') {
         return reject(
           layerError(
             ERR_FAILED,
-            `yt-dlp не найден (${YTDLP_BIN}). В образе он ставится вместе с python3, локально — на PATH или через YTDLP_BIN.`
+            `yt-dlp не найден (${YTDLP_BIN}). В образе он ставится вместе с python3 и ffmpeg, локально — на PATH или через YTDLP_BIN.`
           )
         );
       }
@@ -112,6 +160,11 @@ function runYtDlp(args, { timeout, signal, onChild } = {}) {
     });
 
     child.on('close', (code, closeSignal) => {
+      // Процесс сняли извне (таймаут spawn или сторож размера) — по той же
+      // причине проходим по группе: сам yt-dlp мёртв, ffmpeg мог остаться.
+      if (closeSignal) {
+        killTree(child);
+      }
       resolve({ code, signal: closeSignal, stdout, stderr });
     });
 
@@ -154,45 +207,155 @@ async function probe(url) {
   return {
     title: info.title || null,
     duration: typeof info.duration === 'number' ? info.duration : null,
-    formats: normalizeFormats(info.formats),
+    formats: buildVariants(info.formats),
   };
 }
 
-// Только progressive-форматы: видео и звук уже в одном файле. За это решение
-// (BP-4, решение 1) мы не ставим ffmpeg и знаем размер до скачивания.
-function normalizeFormats(formats) {
-  return (formats || [])
-    .filter(
-      (format) =>
-        format.vcodec &&
-        format.vcodec !== 'none' &&
-        format.acodec &&
-        format.acodec !== 'none'
-    )
-    .map((format) => {
-      const exact = typeof format.filesize === 'number' ? format.filesize : null;
-      const approximate =
-        typeof format.filesize_approx === 'number'
-          ? format.filesize_approx
-          : null;
+// Место кодека в списке предпочтений; неизвестный уходит в конец.
+function codecRank(codec, order) {
+  const value = String(codec || '').toLowerCase();
+  const index = order.findIndex((name) => value.startsWith(name));
 
-      return {
-        formatId: String(format.format_id),
-        ext: format.ext || null,
-        resolution:
-          format.resolution ||
-          (format.width && format.height
-            ? `${format.width}x${format.height}`
-            : null),
-        fps: typeof format.fps === 'number' ? format.fps : null,
-        filesize: exact !== null ? exact : approximate,
-        // Точного размера нет — показанный взят из filesize_approx.
-        approx: exact === null && approximate !== null,
-      };
-    });
+  return index === -1 ? order.length : index;
 }
 
-// Скачивание выбранного формата во временный файл. Возвращает путь к нему;
+// Размер дорожки: точный, если он есть, иначе оценка yt-dlp. approx помнит,
+// какой из двух это был: сумма пары приблизительна вся целиком, даже если
+// вторая дорожка известна точно.
+function readSize(format) {
+  const exact = typeof format.filesize === 'number' ? format.filesize : null;
+  const approximate =
+    typeof format.filesize_approx === 'number' ? format.filesize_approx : null;
+
+  return {
+    bytes: exact !== null ? exact : approximate,
+    approx: exact === null && approximate !== null,
+  };
+}
+
+// У многих аудиодорожек YouTube есть DRC-двойник (нормализованная громкость,
+// суффикс '-drc' в id) — байт в байт того же размера и битрейта. При прочих
+// равных берём обычную: это исходный звук, и селектор выходит привычный
+// ('137+140', а не '137+140-drc').
+const isDrc = (format) => /-drc$/i.test(String(format.format_id));
+
+const hasVideo = (format) => Boolean(format.vcodec) && format.vcodec !== 'none';
+const hasAudio = (format) => Boolean(format.acodec) && format.acodec !== 'none';
+
+// Годится ли формат в кандидаты: нужен обычный https-файл с известным
+// размером. HLS-потоки (m3u8) и раскадровки (mhtml) отсекаем — ни размера,
+// ни смысла в них нет.
+function isUsable(format) {
+  if (!format || !format.format_id || format.ext === 'mhtml') {
+    return false;
+  }
+  const protocol = format.protocol || 'https';
+
+  return protocol === 'https' || protocol === 'http';
+}
+
+// Внутри одного разрешения: сначала совместимость кодека, потом битрейт.
+function compareVideo(a, b) {
+  const rank =
+    codecRank(a.vcodec, VIDEO_CODEC_ORDER) - codecRank(b.vcodec, VIDEO_CODEC_ORDER);
+
+  return rank !== 0 ? rank : (b.tbr || 0) - (a.tbr || 0);
+}
+
+// Аудиодорожка одна на все пары, поэтому берётся лучшая: сначала контейнер,
+// потом битрейт, и уже между одинаковыми — обычная дорожка вместо DRC.
+function compareAudio(a, b) {
+  const rank =
+    codecRank(a.acodec, AUDIO_CODEC_ORDER) - codecRank(b.acodec, AUDIO_CODEC_ORDER);
+  if (rank !== 0) {
+    return rank;
+  }
+  const bitrate = (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0);
+
+  return bitrate !== 0 ? bitrate : Number(isDrc(a)) - Number(isDrc(b));
+}
+
+// Строка списка — одна на разрешение. Если высоты в метаданных нет, формат
+// живёт под своим id и ни с чем не схлопывается.
+function variantKey(format) {
+  return typeof format.height === 'number' && format.height > 0
+    ? `h${format.height}`
+    : `id${format.format_id}`;
+}
+
+// Описание варианта для UI. Пара дорожек и progressive отличаются здесь только
+// селектором и контейнером — дальше по коду они неразличимы.
+function describeVariant(video, audio) {
+  const videoSize = readSize(video);
+  const audioSize = audio ? readSize(audio) : { bytes: 0, approx: false };
+  const known = videoSize.bytes !== null && audioSize.bytes !== null;
+
+  return {
+    // Селектор для -f: '18' у progressive, '137+140' у пары. download
+    // передаёт эту строку yt-dlp как есть, своего формата у нас нет.
+    formatId: audio
+      ? `${video.format_id}+${audio.format_id}`
+      : String(video.format_id),
+    // У пары контейнер задаёт склейка, а не дорожка.
+    ext: audio ? MERGE_FORMAT : video.ext || null,
+    resolution:
+      video.resolution ||
+      (video.width && video.height
+        ? `${video.width}x${video.height}`
+        : null),
+    fps: typeof video.fps === 'number' ? video.fps : null,
+    // Сумма обеих дорожек: столько займёт результат склейки.
+    filesize: known ? videoSize.bytes + audioSize.bytes : null,
+    // Точного размера нет хотя бы у одной дорожки — сумма приблизительная.
+    approx: known && (videoSize.approx || audioSize.approx),
+  };
+}
+
+// Варианты для UI. Progressive-форматов у YouTube больше нет (BP-4,
+// решение 2), поэтому основа списка — пары «видео + лучшее аудио»; редкий
+// progressive показывается, если он всё же нашёлся. Полный список — это два
+// десятка строк на одно и то же разрешение, различающихся кодеком и
+// битрейтом, поэтому на каждое разрешение остаётся один вариант.
+function buildVariants(formats) {
+  const usable = (formats || []).filter(isUsable);
+  const bestAudio =
+    usable
+      .filter((format) => !hasVideo(format) && hasAudio(format))
+      .sort(compareAudio)[0] || null;
+
+  // Ключ — разрешение. Progressive занимает свои разрешения первым и остаётся
+  // за ними: один готовый файл лучше пары, склейка ему не нужна.
+  const variants = new Map();
+
+  const addVariant = (video, audio) => {
+    const key = variantKey(video);
+    if (variants.has(key)) {
+      return;
+    }
+    variants.set(key, {
+      height: video.height || 0,
+      ...describeVariant(video, audio),
+    });
+  };
+
+  usable
+    .filter((format) => hasVideo(format) && hasAudio(format))
+    .forEach((format) => addVariant(format, null));
+
+  if (bestAudio) {
+    usable
+      .filter((format) => hasVideo(format) && !hasAudio(format))
+      .sort(compareVideo)
+      .forEach((format) => addVariant(format, bestAudio));
+  }
+
+  // От мелкого к крупному: выбирают по объёму, и начинают с дешёвого.
+  return [...variants.values()]
+    .sort((a, b) => a.height - b.height)
+    .map(({ height, ...variant }) => variant);
+}
+
+// Скачивание выбранного варианта во временный файл. Возвращает путь к нему;
 // удалить его обязан вызывающий — cleanupDownload().
 async function download(url, formatId, maxBytes, { signal } = {}) {
   assertSafeUrl(url);
@@ -207,11 +370,17 @@ async function download(url, formatId, maxBytes, { signal } = {}) {
       [
         '-f',
         formatId,
+        // Пару дорожек ffmpeg склеивает в mp4. Контейнеры совместимы, поэтому
+        // это remux (-c copy), без перекодирования; на одиночном формате флаг
+        // ничего не меняет.
+        '--merge-output-format',
+        MERGE_FORMAT,
         '--no-playlist',
         '--no-progress',
         '--no-warnings',
-        // Первый рубеж: yt-dlp сам не начнёт качать, если объявленный размер
-        // больше лимита. Второй рубеж — сторож ниже, на случай вранья.
+        // Первый рубеж: yt-dlp не начнёт качать дорожку, чей объявленный
+        // размер больше лимита. Лимит здесь на дорожку, а не на сумму: сумму
+        // проверяет вызывающий до старта, а факт — сторож ниже.
         '--max-filesize',
         String(maxBytes),
         '-o',
@@ -224,10 +393,10 @@ async function download(url, formatId, maxBytes, { signal } = {}) {
         signal,
         onChild: (child) => {
           monitor = setInterval(() => {
-            if (getDirSize(dir) > maxBytes) {
+            if (getDownloadedSize(dir) > maxBytes) {
               killedForSize = true;
               clearInterval(monitor);
-              child.kill('SIGKILL');
+              killTree(child);
             }
           }, SIZE_CHECK_INTERVAL);
         },
@@ -244,6 +413,14 @@ async function download(url, formatId, maxBytes, { signal } = {}) {
       );
     }
     if (result.code !== 0) {
+      // Отдельным текстом: причина не в видео и не в запросе, а в том, что
+      // рядом нет ffmpeg — склеить дорожки нечем.
+      if (/ffmpeg is not installed|ffmpeg not found/i.test(result.stderr)) {
+        throw layerError(
+          ERR_FAILED,
+          'Для склейки дорожек нужен ffmpeg, а его нет на PATH.'
+        );
+      }
       throw layerError(
         ERR_FAILED,
         `yt-dlp завершился с кодом ${result.code}: ${tail(result.stderr) || 'без вывода'}`
@@ -257,6 +434,9 @@ async function download(url, formatId, maxBytes, { signal } = {}) {
       if (/max-filesize/i.test(result.stdout + result.stderr)) {
         throw layerError(ERR_TOO_LARGE, 'Объявленный размер больше лимита.');
       }
+      // Сюда же попадает несостоявшаяся склейка: дорожки на диске есть, а
+      // результата нет. Отдать вместо него дорожку значило бы положить в
+      // GridFS видео без звука, поэтому findResultFile их не считает.
       throw layerError(
         ERR_FAILED,
         `yt-dlp не оставил файла: ${tail(result.stdout + result.stderr) || 'без вывода'}`
@@ -268,7 +448,8 @@ async function download(url, formatId, maxBytes, { signal } = {}) {
 
     return file;
   } catch (error) {
-    // На любой неудаче каталог задания уходит целиком — включая .part.
+    // На любой неудаче каталог задания уходит целиком — вместе с .part и
+    // обеими промежуточными дорожками.
     removeJobDir(dir);
     throw error;
   } finally {
@@ -286,6 +467,7 @@ function cleanupDownload(tmpPath) {
 
 module.exports = {
   YTDLP_BIN,
+  MERGE_FORMAT,
   ERR_INVALID,
   ERR_TOO_LARGE,
   ERR_TIMEOUT,
