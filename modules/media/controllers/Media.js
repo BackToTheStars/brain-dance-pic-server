@@ -295,8 +295,15 @@ function createMediaController(contentType) {
         return res.status(404).json({ message: 'Media not found' });
       }
       const files = await getFileInfo(contentType, media.filename);
+
+      // Файл мог исчезнуть из GridFS ручной чисткой или сбоем.
       if (!files || files.length === 0) {
-        return res.status(404).send('File not found in storage');
+        await Media.findByIdAndDelete(id);
+
+        return res.json({
+          message: 'Media removed successfully',
+          fileMissing: true,
+        });
       }
 
       const file = files[0];
@@ -306,7 +313,7 @@ function createMediaController(contentType) {
       // Удаляем метаданные из MongoDB
       await Media.findByIdAndDelete(id);
 
-      res.json({ message: 'Media removed successfully' });
+      res.json({ message: 'Media removed successfully', fileMissing: false });
     } catch (error) {
       console.error(error);
       res.status(500).json({

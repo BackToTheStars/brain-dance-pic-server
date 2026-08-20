@@ -1,5 +1,7 @@
 node_modules
 .git
+.env
+.env.*
 .dockerignore
 Dockerfile
 docker-compose.yml
@@ -9,3 +11,4 @@ mongo_data
 mongo_data_v7
 backups/data_v7
 *.log
+docs

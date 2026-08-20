@@ -9,7 +9,6 @@ async function getStats(req, res) {
     console.error(error);
     res.status(500).json({
       message: 'An error occurred during stats collection.',
-      error: error.message,
     });
   }
 }
