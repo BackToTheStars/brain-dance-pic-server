@@ -49,10 +49,12 @@ function respondError(res, error) {
     case ERR_FAILED:
       return res.status(502).json({ message: error.message });
     default:
+      // Ошибка не из слоя yt-dlp (чаще всего GridFS или mongo): наружу общая
+      // фраза, подробность — в лог. Тексты выше этой ветки другие: они
+      // осмысленны и на них опираются server и UI.
       console.error(error);
       return res.status(500).json({
         message: 'An error occurred during the youtube operation.',
-        error: error.message,
       });
   }
 }

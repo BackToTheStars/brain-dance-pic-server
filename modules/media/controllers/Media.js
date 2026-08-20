@@ -132,10 +132,11 @@ function createMediaController(contentType) {
         },
       });
     } catch (error) {
+      // Наружу — общая фраза: в error.message попадают внутренние подробности
+      // (имя хоста mongo, путь, устройство схемы). Причина остаётся в логе.
       console.error(error);
       res.status(500).json({
         message: 'An error occurred during upload.',
-        error: error.message,
       });
     }
   }
@@ -212,7 +213,6 @@ function createMediaController(contentType) {
       console.error(error);
       res.status(500).json({
         message: 'An error occurred during download and save.',
-        error: error.message,
       });
     }
   }
@@ -280,7 +280,6 @@ function createMediaController(contentType) {
       console.error(error);
       res.status(500).json({
         message: 'An error occurred during download.',
-        error: error.message,
       });
     }
   }
@@ -318,7 +317,6 @@ function createMediaController(contentType) {
       console.error(error);
       res.status(500).json({
         message: 'An error occurred during removal.',
-        error: error.message,
       });
     }
   }

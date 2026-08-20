@@ -8,6 +8,7 @@ const { createMediaController } = require('../controllers/Media');
 const {
   OPERATION_UPLOAD,
   OPERATION_DOWNLOAD_AND_SAVE,
+  OPERATION_DELETE,
 } = require('../../../config/media');
 
 function createMediaRouter(contentType) {
@@ -30,8 +31,15 @@ function createMediaRouter(contentType) {
     controller.downloadAndSaveMedia
   );
 
+  // Отдача без токена — намеренно: файл читает браузер по прямой ссылке.
   router.get('/:filename', controller.getMedia);
-  router.delete('/:id', controller.removeMedia);
+
+  router.delete(
+    '/:id',
+    authenticateToken,
+    checkOperation(OPERATION_DELETE),
+    controller.removeMedia
+  );
 
   // Add specific routes if needed
   // For example, router.get('/:filename/fragment', controller.getMediaFragment);
