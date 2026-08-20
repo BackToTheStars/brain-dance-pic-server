@@ -12,8 +12,13 @@ const {
   getMimeType,
   hasMimeType,
   getUploadLimit,
+  tooLargeMessage,
 } = require('../../../config/media');
 const { MEDIA_HOST } = require('../../../config/url');
+const {
+  HTTP_HEAD_TIMEOUT,
+  HTTP_DOWNLOAD_TIMEOUT,
+} = require('../../../config/timeouts');
 
 // Wikimedia и ряд CDN отдают 403 на запросы без осмысленного User-Agent
 // (их User-Agent policy). Задаём описательный UA для серверного скачивания.
@@ -22,13 +27,6 @@ const DOWNLOAD_USER_AGENT =
   'BrainDanceMediaBot/1.0 (+https://brain-dance.net)';
 
 const storage = multer.memoryStorage();
-
-const toMb = (bytes) => Math.round(bytes / (1024 * 1024));
-
-// Один текст на оба пути (multer и download-and-save), чтобы клиент видел
-// одинаковый отказ независимо от того, как файл попал на сервер.
-const tooLargeMessage = (limit) =>
-  `Файл больше допустимого размера (${toMb(limit)} МБ).`;
 
 // Превышение maxContentLength axios отдаёт обычной ERR_BAD_RESPONSE — тем же кодом,
 // что и прочие сетевые сбои, поэтому опознаём её ещё и по тексту сообщения.
@@ -64,6 +62,7 @@ async function getRemoteContentLength(mediaUrl) {
         'User-Agent': DOWNLOAD_USER_AGENT,
         Accept: '*/*',
       },
+      timeout: HTTP_HEAD_TIMEOUT,
     });
     const length = Number(response.headers['content-length']);
 
@@ -175,6 +174,7 @@ function createMediaController(contentType) {
         },
         maxContentLength: limit,
         maxBodyLength: limit,
+        timeout: HTTP_DOWNLOAD_TIMEOUT,
       });
       const buffer = Buffer.from(response.data);
 

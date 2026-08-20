@@ -30,6 +30,33 @@ function saveFileToGridFS(contentType, buffer, filename, metadata) {
   });
 }
 
+// Сохранение потоком: файл не читается в память целиком. Нужно там, где размер
+// не ограничен парой мегабайт — сейчас это скачанное с YouTube видео.
+function saveStreamToGridFS(contentType, readStream, filename, metadata) {
+  return new Promise((resolve, reject) => {
+    const bucket = getGridFSBucket(contentType);
+    const uploadStream = bucket.openUploadStream(filename, {
+      metadata,
+    });
+
+    // На ошибке любой из сторон убираем недописанный файл из GridFS: иначе
+    // в бакете останутся чанки, на которые никто не ссылается.
+    const fail = (error) => {
+      readStream.destroy();
+      uploadStream.abort().catch(() => {});
+      reject(error);
+    };
+
+    readStream.on('error', fail);
+    uploadStream.on('error', fail);
+    uploadStream.on('finish', () => {
+      resolve(uploadStream.id.toString());
+    });
+
+    readStream.pipe(uploadStream);
+  });
+}
+
 function downloadFileFromGridFS(contentType, filename, start, end) {
   const bucket = getGridFSBucket(contentType);
   const options = {};
@@ -57,6 +84,7 @@ async function removeFileFromGridFS(contentType, fileId) {
 module.exports = {
   initGridFS,
   saveFileToGridFS,
+  saveStreamToGridFS,
   downloadFileFromGridFS,
   getFileInfo,
   removeFileFromGridFS,

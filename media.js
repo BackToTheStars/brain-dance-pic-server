@@ -7,9 +7,11 @@ const { MONGO_URL } = require('./config/db');
 
 const { createMediaRouter } = require('./modules/media/routes/media');
 const { createStatsRouter } = require('./modules/stats/routes/stats');
+const { createYoutubeRouter } = require('./modules/youtube/routes/youtube');
 const { initGridFS } = require('./modules/media/services/gridFs');
 const { mediaTypes } = require('./config/media');
 const { error404, errorAll } = require('./modules/core/middlewares/errors');
+const { cleanTmpRoot } = require('./modules/youtube/services/tmp');
 
 const app = express();
 const port = process.env.MEDIA_PORT || 3011;
@@ -44,8 +46,16 @@ mediaTypes.forEach((type) => {
 // Статистика хранилища — не привязана к типу медиа, поэтому отдельным роутером
 app.use('/stats', createStatsRouter());
 
+// Перенос видео с YouTube: свой транспорт (yt-dlp) и свой лимит, к бакету
+// привязан только результатом, поэтому тоже отдельным роутером
+app.use('/youtube', createYoutubeRouter());
+
 app.use(error404);
 app.use(errorAll);
+
+// После падения или перезапуска в каталоге youtube могли остаться недокачанные
+// файлы — снимаем их до того, как примем первый запрос.
+cleanTmpRoot();
 
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
