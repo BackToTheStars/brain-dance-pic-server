@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { MONGO_URL } = require('./config/db');
 
 const { createMediaRouter } = require('./modules/media/routes/media');
+const { createStatsRouter } = require('./modules/stats/routes/stats');
 const { initGridFS } = require('./modules/media/services/gridFs');
 const { mediaTypes } = require('./config/media');
 const { error404, errorAll } = require('./modules/core/middlewares/errors');
@@ -39,6 +40,9 @@ mongoose
 mediaTypes.forEach((type) => {
   app.use(`/${type}`, createMediaRouter(type));
 });
+
+// Статистика хранилища — не привязана к типу медиа, поэтому отдельным роутером
+app.use('/stats', createStatsRouter());
 
 app.use(error404);
 app.use(errorAll);

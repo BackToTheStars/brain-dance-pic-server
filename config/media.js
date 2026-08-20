@@ -1,6 +1,7 @@
 const OPERATION_UPLOAD = 'upload';
 const OPERATION_DELETE = 'delete';
 const OPERATION_DOWNLOAD_AND_SAVE = 'download_and_save';
+const OPERATION_STATS = 'stats';
 
 const mediaTypes = ['audios', 'videos', 'images', 'pdfs'];
 
@@ -69,6 +70,7 @@ module.exports = {
   OPERATION_UPLOAD,
   OPERATION_DELETE,
   OPERATION_DOWNLOAD_AND_SAVE,
+  OPERATION_STATS,
   mediaTypes,
   getMimeType,
   hasMimeType,

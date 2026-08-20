@@ -25,6 +25,19 @@ const storage = multer.memoryStorage();
 
 const toMb = (bytes) => Math.round(bytes / (1024 * 1024));
 
+// Один текст на оба пути (multer и download-and-save), чтобы клиент видел
+// одинаковый отказ независимо от того, как файл попал на сервер.
+const tooLargeMessage = (limit) =>
+  `Файл больше допустимого размера (${toMb(limit)} МБ).`;
+
+// Превышение maxContentLength axios отдаёт обычной ERR_BAD_RESPONSE — тем же кодом,
+// что и прочие сетевые сбои, поэтому опознаём её ещё и по тексту сообщения.
+// ERR_FR_MAX_BODY_LENGTH_EXCEEDED приходит из follow-redirects (maxBodyLength).
+const isTooLargeError = (error) =>
+  error?.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED' ||
+  (error?.code === 'ERR_BAD_RESPONSE' &&
+    /maxContentLength/.test(error?.message || ''));
+
 // multer отдаёт LIMIT_FILE_SIZE обычной ошибкой без statusCode, и клиент получил бы
 // невнятную 500 «На сервере произошла ошибка» — переводим её в 413 с размером лимита.
 function createUploadMiddleware(contentType) {
@@ -35,12 +48,29 @@ function createUploadMiddleware(contentType) {
     upload.single('file')(req, res, (err) => {
       if (!err) return next();
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({
-          message: `Файл больше допустимого размера (${toMb(limit)} МБ).`,
-        });
+        return res.status(413).json({ message: tooLargeMessage(limit) });
       }
       next(err);
     });
+}
+
+// Размер до скачивания: HEAD позволяет отказать, не потянув файл вовсе.
+// Часть серверов не отвечает на HEAD или не отдаёт Content-Length — тогда
+// возвращаем null и полагаемся на maxContentLength у самого GET.
+async function getRemoteContentLength(mediaUrl) {
+  try {
+    const response = await axios.head(mediaUrl, {
+      headers: {
+        'User-Agent': DOWNLOAD_USER_AGENT,
+        Accept: '*/*',
+      },
+    });
+    const length = Number(response.headers['content-length']);
+
+    return Number.isFinite(length) && length >= 0 ? length : null;
+  } catch {
+    return null;
+  }
 }
 
 function getExtension(filename) {
@@ -128,12 +158,23 @@ function createMediaController(contentType) {
       }
       const mimetype = getMimeType(contentType, extension);
 
+      // Этот путь идёт мимо multer, то есть мимо его limits.fileSize. Файл так же
+      // целиком буферизуется в памяти, поэтому потолок нужен и здесь: сначала по
+      // Content-Length (если сервер его отдал), затем — на самом скачивании.
+      const limit = getUploadLimit(contentType);
+      const contentLength = await getRemoteContentLength(mediaUrl);
+      if (contentLength !== null && contentLength > limit) {
+        return res.status(413).json({ message: tooLargeMessage(limit) });
+      }
+
       const response = await axios.get(mediaUrl, {
         responseType: 'arraybuffer',
         headers: {
           'User-Agent': DOWNLOAD_USER_AGENT,
           Accept: '*/*',
         },
+        maxContentLength: limit,
+        maxBodyLength: limit,
       });
       const buffer = Buffer.from(response.data);
 
@@ -163,6 +204,11 @@ function createMediaController(contentType) {
         },
       });
     } catch (error) {
+      if (isTooLargeError(error)) {
+        return res.status(413).json({
+          message: tooLargeMessage(getUploadLimit(contentType)),
+        });
+      }
       console.error(error);
       res.status(500).json({
         message: 'An error occurred during download and save.',
