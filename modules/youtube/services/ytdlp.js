@@ -27,6 +27,16 @@ const MERGE_FORMAT = 'mp4';
 // стороны, поэтому одного лишь --max-filesize мало.
 const SIZE_CHECK_INTERVAL = 1000;
 
+// Потолки на вывод чужого процесса (память не должна зависеть от его ответа).
+// Они разные, потому что буфер держит ХВОСТ: stderr нужен только ради текста
+// ошибки, а stdout — это целый JSON от -J, и обрезанное начало валило бы
+// JSON.parse ошибкой «yt-dlp вернул не JSON» на любом probe этого видео.
+// Замер 21.08.2026 (yt-dlp 2026.08.19): у ролика с большим набором
+// автосубтитров -J отдаёт 634 КБ — потолок в 2 МБ давал лишь троекратный
+// запас, поэтому для stdout он поднят.
+const STDOUT_LIMIT = 16 * 1024 * 1024;
+const STDERR_LIMIT = 2 * 1024 * 1024;
+
 // Порядок предпочтения кодеков внутри одного разрешения. h264 ложится в mp4
 // remux'ом и играется где угодно; vp9 и av1 в mp4 тоже лягут, но игрок может
 // их не взять, поэтому они — запасной вариант. Звук: mp4a (m4a) для mp4
@@ -129,16 +139,13 @@ function runYtDlp(args, { timeout, signal, onChild } = {}) {
 
     let stdout = '';
     let stderr = '';
-    // Ограничение сверху: probe отдаёт JSON на сотни килобайт, но вешать
-    // память на чужой ответ всё равно не стоит.
-    const append = (buffer, chunk) =>
-      (buffer + chunk).slice(-2 * 1024 * 1024);
+    const append = (buffer, chunk, limit) => (buffer + chunk).slice(-limit);
 
     child.stdout.on('data', (chunk) => {
-      stdout = append(stdout, chunk);
+      stdout = append(stdout, chunk, STDOUT_LIMIT);
     });
     child.stderr.on('data', (chunk) => {
-      stderr = append(stderr, chunk);
+      stderr = append(stderr, chunk, STDERR_LIMIT);
     });
 
     child.on('error', (error) => {
