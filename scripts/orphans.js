@@ -18,7 +18,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 const { MONGO_URL } = require('../config/db');
-const { mediaTypes } = require('../config/media');
+const { mediaTypes, formatSize } = require('../config/media');
 
 const HELP = `Поиск осиротевших файлов в GridFS (файл есть, записи Media нет).
 
@@ -88,13 +88,6 @@ function parseArgs(argv) {
 
 // Сколько имён показывать списком, прежде чем свернуть остаток в счётчик.
 const MAX_LISTED = 10;
-
-const formatSize = (bytes) => {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
-
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
-};
 
 const formatDate = (date) =>
   date instanceof Date ? date.toISOString().replace('T', ' ').slice(0, 19) : '—';

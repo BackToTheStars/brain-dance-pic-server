@@ -54,13 +54,21 @@ const UPLOAD_LIMITS = {
 const getUploadLimit = (contentType) =>
   UPLOAD_LIMITS[contentType] || DEFAULT_UPLOAD_LIMIT;
 
-const toMb = (bytes) => Math.round(bytes / (1024 * 1024));
+// Б / КБ / МБ. Округление до мегабайт врало на мелких лимитах: при 600 КБ
+// отказ читался как «(1 МБ)» (BP-15). Формат общий со scripts/orphans.js —
+// он берёт функцию отсюда, чтобы размеры в сервисе выглядели одинаково.
+const formatSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+};
 
 // Один текст отказа на все пути загрузки — multer, download-and-save и youtube:
 // клиент видит одинаковую формулировку независимо от того, как файл попадал
 // на сервер. Живёт рядом с лимитами, чтобы текст и число не разъезжались.
 const tooLargeMessage = (limit) =>
-  `Файл больше допустимого размера (${toMb(limit)} МБ).`;
+  `Файл больше допустимого размера (${formatSize(limit)}).`;
 
 const getMimeType = (contentType, extension) => {
   return (
@@ -85,5 +93,6 @@ module.exports = {
   getMimeType,
   hasMimeType,
   getUploadLimit,
+  formatSize,
   tooLargeMessage,
 };
