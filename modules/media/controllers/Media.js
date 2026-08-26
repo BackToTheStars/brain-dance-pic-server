@@ -8,6 +8,7 @@ const {
   removeFileFromGridFS,
 } = require('../services/gridFs');
 const { getMediaModel } = require('../models/Media');
+const { isViewStart, trackAccess } = require('../services/access');
 const {
   getMimeType,
   hasMimeType,
@@ -239,6 +240,16 @@ function createMediaController(contentType) {
       const file = files[0];
       const fileSize = file.length;
       const contentTypeHeader = media.contentType;
+
+      // Учёт обращений — только начало просмотра и только
+      // после того, как файл найден: запись без файла спросом не считается.
+      // Ответа не ждём и на ошибке записи отдачу не роняем — счётчик здесь
+      // побочная телеметрия, а не часть отдачи файла.
+      if (isViewStart(range)) {
+        trackAccess(Media, media._id).catch((error) => {
+          console.error('access tracking failed', error);
+        });
+      }
 
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-');

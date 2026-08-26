@@ -7,6 +7,7 @@ const { MONGO_URL } = require('./config/db');
 
 const { createMediaRouter } = require('./modules/media/routes/media');
 const { createStatsRouter } = require('./modules/stats/routes/stats');
+const { createFilesRouter } = require('./modules/media/routes/files');
 const { createYoutubeRouter } = require('./modules/youtube/routes/youtube');
 const { initGridFS } = require('./modules/media/services/gridFs');
 const { mediaTypes } = require('./config/media');
@@ -45,6 +46,10 @@ mediaTypes.forEach((type) => {
 
 // Статистика хранилища — не привязана к типу медиа, поэтому отдельным роутером
 app.use('/stats', createStatsRouter());
+
+// Список файлов для админки: тип здесь фильтр, а не адрес, — поэтому тоже
+// вне роутеров по типам.
+app.use('/files', createFilesRouter());
 
 // Перенос видео с YouTube: свой транспорт (yt-dlp) и свой лимит, к бакету
 // привязан только результатом, поэтому тоже отдельным роутером

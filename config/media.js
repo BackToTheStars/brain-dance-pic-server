@@ -3,6 +3,7 @@ const OPERATION_DELETE = 'delete';
 const OPERATION_DOWNLOAD_AND_SAVE = 'download_and_save';
 const OPERATION_STATS = 'stats';
 const OPERATION_YOUTUBE = 'youtube';
+const OPERATION_LIST = 'list';
 
 const mediaTypes = ['audios', 'videos', 'images', 'pdfs'];
 
@@ -70,6 +71,11 @@ const formatSize = (bytes) => {
 const tooLargeMessage = (limit) =>
   `Файл больше допустимого размера (${formatSize(limit)}).`;
 
+// Учёт обращений: не чаще одной записи на файл за это окно.
+// Держим константой, а не полем в базе: поменять окно — это перенастройка,
+// а не миграция, и старые значения счётчика от неё не портятся.
+const ACCESS_COUNT_WINDOW = 3 * 60 * 1000;
+
 const getMimeType = (contentType, extension) => {
   return (
     dMediaTypes[contentType].mimeTypes[extension.toLowerCase()] ||
@@ -89,10 +95,12 @@ module.exports = {
   OPERATION_DOWNLOAD_AND_SAVE,
   OPERATION_STATS,
   OPERATION_YOUTUBE,
+  OPERATION_LIST,
   mediaTypes,
   getMimeType,
   hasMimeType,
   getUploadLimit,
   formatSize,
   tooLargeMessage,
+  ACCESS_COUNT_WINDOW,
 };

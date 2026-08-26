@@ -4,7 +4,6 @@
   "private": true,
   "main": "media.js",
   "scripts": {
-    "token": "node ./scripts/tokens.js",
     "dev:media": "nodemon ./media.js",
     "media": "node ./media.js",
     "start": "node ./media.js"
