@@ -20,11 +20,26 @@ const port = process.env.MEDIA_PORT || 3011;
 // exposedHeaders: кросс-доменному коду (pdf.js в клиенте) по умолчанию видны только
 // safelisted-заголовки ответа. Без Accept-Ranges/Content-Range он не видит поддержку
 // диапазонов и качает документ целиком.
-app.use(
-  cors({
-    exposedHeaders: ['Accept-Ranges', 'Content-Range', 'Content-Length'],
-  })
-);
+//
+// CORS_ORIGINS: список origin'ов через запятую. Не задана — открыто всем, как раньше
+// (дев-стенды не ломаются). Задана — CORS-заголовки получают только перечисленные origin'ы;
+// отдача файлов через <img>/<video> от этого не зависит (браузер не требует
+// Access-Control-Allow-Origin для их загрузки), а прямая загрузка из браузера клиента
+// (XMLHttpRequest с Bearer-токеном на /<type>/upload) продолжит работать с origin'ов списка.
+//
+// Ключ origin включаем в объект настроек, только когда переменная задана: cors() мёржит
+// переданный объект поверх дефолтов через object-assign, и даже origin: undefined перебил бы
+// дефолтное origin: '*' — закрыв доступ вместо сохранения открытого поведения.
+const corsOptions = {
+  exposedHeaders: ['Accept-Ranges', 'Content-Range', 'Content-Length'],
+};
+if (process.env.CORS_ORIGINS) {
+  corsOptions.origin = process.env.CORS_ORIGINS.split(',').map((origin) =>
+    origin.trim()
+  );
+}
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '350mb' }));
 app.use(express.urlencoded({ limit: '350mb', extended: true }));
 
