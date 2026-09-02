@@ -251,6 +251,29 @@ function createMediaController(contentType) {
         });
       }
 
+      // Поток GridFS падает уже после того, как файл найден в описи: запись
+      // удалили между проверкой и чтением, или у неё не хватает чанков. Без
+      // этого обработчика Node считает ошибку потока неперехваченной и убивает
+      // процесс — один запрос к пропавшему файлу ронял отдачу всем сразу.
+      const pipeToResponse = (downloadStream) => {
+        downloadStream.on('error', (error) => {
+          console.error(`download stream failed for ${filename}`, error);
+          if (!res.headersSent) {
+            const notFound = error.code === 'ENOENT';
+            res.status(notFound ? 404 : 500).json({
+              message: notFound
+                ? 'File not found in storage'
+                : 'An error occurred during download.',
+            });
+            return;
+          }
+          // Заголовки уже ушли, статус не поменять: рвём ответ, чтобы клиент
+          // увидел обрыв, а не принял усечённый файл за целый.
+          res.destroy(error);
+        });
+        downloadStream.pipe(res);
+      };
+
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-');
         const start = parseInt(parts[0], 10);
@@ -269,13 +292,9 @@ function createMediaController(contentType) {
           'Content-Type': contentTypeHeader,
         });
 
-        const downloadStream = downloadFileFromGridFS(
-          contentType,
-          filename,
-          start,
-          end + 1
+        pipeToResponse(
+          downloadFileFromGridFS(contentType, filename, start, end + 1)
         );
-        downloadStream.pipe(res);
       } else {
         res.writeHead(200, {
           'Content-Length': fileSize,
@@ -284,8 +303,7 @@ function createMediaController(contentType) {
           // и качает весь документ целиком вместо ленивой подгрузки страниц
           'Accept-Ranges': 'bytes',
         });
-        const downloadStream = downloadFileFromGridFS(contentType, filename);
-        downloadStream.pipe(res);
+        pipeToResponse(downloadFileFromGridFS(contentType, filename));
       }
     } catch (error) {
       console.error(error);
