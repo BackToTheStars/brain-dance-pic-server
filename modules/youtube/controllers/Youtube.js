@@ -146,7 +146,7 @@ async function downloadVideo(req, res) {
       ...metadata,
       mimetype,
       // По исходной ссылке возможен откат: отдельного поля под неё в схеме
-      // хода не заводится (BP-4, решение 4).
+      // хода не заводится.
       originalUrl: url,
       formatId: format.formatId,
       title: info.title,

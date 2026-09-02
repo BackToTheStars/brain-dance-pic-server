@@ -1,6 +1,6 @@
 const { parseListQuery, listMedia } = require('../services/list');
 
-// Список файлов для админки (BP-18, часть 1). Не привязан к типу медиа: тип
+// Список файлов для админки. Не привязан к типу медиа: тип
 // здесь фильтр, а не адрес, — поэтому и роутер отдельный, как у /stats.
 async function listFiles(req, res) {
   const parsed = parseListQuery(req.query);

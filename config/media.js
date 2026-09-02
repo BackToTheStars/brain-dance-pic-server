@@ -56,7 +56,7 @@ const getUploadLimit = (contentType) =>
   UPLOAD_LIMITS[contentType] || DEFAULT_UPLOAD_LIMIT;
 
 // Б / КБ / МБ. Округление до мегабайт врало на мелких лимитах: при 600 КБ
-// отказ читался как «(1 МБ)» (BP-15). Формат общий со scripts/orphans.js —
+// отказ читался как «(1 МБ)». Формат общий со scripts/orphans.js —
 // он берёт функцию отсюда, чтобы размеры в сервисе выглядели одинаково.
 const formatSize = (bytes) => {
   if (bytes < 1024) return `${bytes} Б`;

@@ -21,22 +21,34 @@ const port = process.env.MEDIA_PORT || 3011;
 // safelisted-заголовки ответа. Без Accept-Ranges/Content-Range он не видит поддержку
 // диапазонов и качает документ целиком.
 //
-// CORS_ORIGINS: список origin'ов через запятую. Не задана — открыто всем, как раньше
-// (дев-стенды не ломаются). Задана — CORS-заголовки получают только перечисленные origin'ы;
-// отдача файлов через <img>/<video> от этого не зависит (браузер не требует
-// Access-Control-Allow-Origin для их загрузки), а прямая загрузка из браузера клиента
-// (XMLHttpRequest с Bearer-токеном на /<type>/upload) продолжит работать с origin'ов списка.
-//
-// Ключ origin включаем в объект настроек, только когда переменная задана: cors() мёржит
-// переданный объект поверх дефолтов через object-assign, и даже origin: undefined перебил бы
-// дефолтное origin: '*' — закрыв доступ вместо сохранения открытого поведения.
+// CORS_ORIGINS: список origin'ов через запятую. Не задана (или после разбора пуста —
+// например строка из одних пробелов и запятых) — открыто всем, как раньше (дев-стенды не
+// ломаются). Задана — CORS-заголовки получают только перечисленные origin'ы; отдача файлов
+// через <img>/<video> от этого не зависит (браузер не требует Access-Control-Allow-Origin
+// для их загрузки), а прямая загрузка из браузера клиента (XMLHttpRequest с Bearer-токеном
+// на /<type>/upload) продолжит работать с origin'ов списка. Разбор — как у server
+// (config/cors.js), чтобы оба сервиса читали переменную одинаково.
+const parseCorsOrigins = (raw) => {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const origins = raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return origins.length ? origins : null;
+};
+
+// Ключ origin включаем в объект настроек, только когда список после разбора непуст: cors()
+// мёржит переданный объект поверх дефолтов через object-assign, и даже origin: undefined
+// перебил бы дефолтное origin: '*' — закрыв доступ вместо сохранения открытого поведения.
 const corsOptions = {
   exposedHeaders: ['Accept-Ranges', 'Content-Range', 'Content-Length'],
 };
-if (process.env.CORS_ORIGINS) {
-  corsOptions.origin = process.env.CORS_ORIGINS.split(',').map((origin) =>
-    origin.trim()
-  );
+const corsOrigins = parseCorsOrigins(process.env.CORS_ORIGINS);
+if (corsOrigins) {
+  corsOptions.origin = corsOrigins;
 }
 
 app.use(cors(corsOptions));
