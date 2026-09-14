@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const { saveStreamToGridFS } = require('../../media/services/gridFs');
-const { getMediaModel } = require('../../media/models/Media');
+const { storeMedia, NAME_TAKEN } = require('../../media/services/store');
+const { buildMetadata } = require('../../media/services/metadata');
 const {
   getMimeType,
   hasMimeType,
@@ -26,8 +26,6 @@ const {
 // обычное видео, отличает его только originalUrl в метаданных.
 const CONTENT_TYPE = 'videos';
 
-const Media = getMediaModel(CONTENT_TYPE);
-
 // Ошибки слоя → HTTP. Сам слой про статусы не знает.
 function respondError(res, error) {
   // Соединение уже закрыто клиентом — отвечать некому.
@@ -48,6 +46,8 @@ function respondError(res, error) {
       return;
     case ERR_FAILED:
       return res.status(502).json({ message: error.message });
+    case NAME_TAKEN:
+      return res.status(409).json({ message: 'File name is already taken.' });
     default:
       // Ошибка не из слоя yt-dlp (чаще всего GridFS или mongo): наружу общая
       // фраза, подробность — в лог. Тексты выше этой ветки другие: они
@@ -61,7 +61,7 @@ function respondError(res, error) {
 
 async function probeVideo(req, res) {
   try {
-    const { url } = req.body;
+    const { url } = req.body || {};
     if (!url) {
       return res.status(400).json({ message: 'No video URL provided.' });
     }
@@ -100,7 +100,7 @@ async function downloadVideo(req, res) {
   });
 
   try {
-    const { url, formatId, metadata } = req.body;
+    const { url, formatId, metadata } = req.body || {};
     if (!url) {
       return res.status(400).json({ message: 'No video URL provided.' });
     }
@@ -142,32 +142,23 @@ async function downloadVideo(req, res) {
 
     const filename = `${uuidv4()}.${extension}`;
     const mimetype = getMimeType(CONTENT_TYPE, extension);
-    const fileMetadata = {
-      ...metadata,
+    const fileMetadata = buildMetadata(metadata, req.payload, {
       mimetype,
       // По исходной ссылке возможен откат: отдельного поля под неё в схеме
       // хода не заводится.
       originalUrl: url,
       formatId: format.formatId,
       title: info.title,
-    };
+    });
 
     // Ровно то, ради чего модуль живёт внутри media: файл уходит в GridFS
     // потоком, расход памяти не зависит от его размера.
-    await saveStreamToGridFS(
-      CONTENT_TYPE,
-      fs.createReadStream(tmpPath),
+    const media = await storeMedia(CONTENT_TYPE, {
       filename,
-      fileMetadata
-    );
-
-    const media = new Media({
-      filename,
+      mimetype,
       metadata: fileMetadata,
-      contentType: mimetype,
+      openStream: () => fs.createReadStream(tmpPath),
     });
-
-    await media.save();
 
     res.json({
       src: `${MEDIA_HOST}/${CONTENT_TYPE}/${filename}`,

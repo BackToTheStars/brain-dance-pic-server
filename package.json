@@ -6,7 +6,8 @@
   "scripts": {
     "dev:media": "nodemon ./media.js",
     "media": "node ./media.js",
-    "start": "node ./media.js"
+    "start": "node ./media.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22"

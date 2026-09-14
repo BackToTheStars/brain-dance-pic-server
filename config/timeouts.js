@@ -19,9 +19,14 @@ const YTDLP_PROBE_TIMEOUT = 60 * 1000;
 // Щедрый: это сотни мегабайт, а yt-dlp внутри ещё и ретраит фрагменты.
 const YTDLP_DOWNLOAD_TIMEOUT = 30 * 60 * 1000;
 
+// Кадр из видео — на каждый запуск ffprobe и ffmpeg. Замер 14.09.2026: до 3 с на
+// видео 288 МБ без индекса (webm, кадр в конце), около 1 с с индексом.
+const FFMPEG_FRAME_TIMEOUT = 60 * 1000;
+
 module.exports = {
   HTTP_HEAD_TIMEOUT,
   HTTP_DOWNLOAD_TIMEOUT,
   YTDLP_PROBE_TIMEOUT,
   YTDLP_DOWNLOAD_TIMEOUT,
+  FFMPEG_FRAME_TIMEOUT,
 };

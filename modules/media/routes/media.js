@@ -5,10 +5,13 @@ const {
   // accessControl,
 } = require('../../auth/middlewares/auth');
 const { createMediaController } = require('../controllers/Media');
+const { previewFrame, saveFrame } = require('../controllers/Frame');
 const {
   OPERATION_UPLOAD,
   OPERATION_DOWNLOAD_AND_SAVE,
   OPERATION_DELETE,
+  OPERATION_FRAME,
+  OPERATION_FRAME_SAVE,
 } = require('../../../config/media');
 
 function createMediaRouter(contentType) {
@@ -41,8 +44,20 @@ function createMediaRouter(contentType) {
     controller.removeMedia
   );
 
-  // Add specific routes if needed
-  // For example, router.get('/:filename/fragment', controller.getMediaFragment);
+  if (contentType === 'videos') {
+    router.get(
+      '/:filename/frame',
+      authenticateToken,
+      checkOperation(OPERATION_FRAME),
+      previewFrame
+    );
+    router.post(
+      '/:filename/frame',
+      authenticateToken,
+      checkOperation(OPERATION_FRAME_SAVE),
+      saveFrame
+    );
+  }
 
   return router;
 }

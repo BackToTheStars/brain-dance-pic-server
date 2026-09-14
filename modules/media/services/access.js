@@ -1,4 +1,12 @@
+const crypto = require('crypto');
+
 const { ACCESS_COUNT_WINDOW } = require('../../../config/media');
+
+// Чтение файла самим сервисом (кадр из видео) — не просмотр. Значение знает только процесс.
+const INTERNAL_READ_HEADER = 'x-media-internal-read';
+const INTERNAL_READ_TOKEN = crypto.randomBytes(16).toString('hex');
+
+const isInternalRead = (req) => req.get(INTERNAL_READ_HEADER) === INTERNAL_READ_TOKEN;
 
 // Начало просмотра — это отсутствие Range либо диапазон, запрошенный с нуля.
 // Всё остальное — продолжение уже начатого: видео браузер тянет десятками
@@ -26,6 +34,9 @@ async function trackAccess(Media, id, now = new Date()) {
 }
 
 module.exports = {
+  INTERNAL_READ_HEADER,
+  INTERNAL_READ_TOKEN,
+  isInternalRead,
   isViewStart,
   trackAccess,
 };

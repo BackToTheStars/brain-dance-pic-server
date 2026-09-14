@@ -6,16 +6,21 @@ const mongoose = require('mongoose');
 const { MONGO_URL } = require('./config/db');
 
 const { createMediaRouter } = require('./modules/media/routes/media');
-const { createStatsRouter } = require('./modules/stats/routes/stats');
+const {
+  createStatsRouter,
+  createLimitsRouter,
+} = require('./modules/stats/routes/stats');
 const { createFilesRouter } = require('./modules/media/routes/files');
 const { createYoutubeRouter } = require('./modules/youtube/routes/youtube');
 const { initGridFS } = require('./modules/media/services/gridFs');
-const { mediaTypes } = require('./config/media');
+const { checkMediaIndexes } = require('./modules/media/models/Media');
+const { mediaTypes, REQUEST_BODY_LIMIT } = require('./config/media');
+const { MEDIA_PORT } = require('./config/url');
 const { error404, errorAll } = require('./modules/core/middlewares/errors');
 const { cleanTmpRoot } = require('./modules/youtube/services/tmp');
 
 const app = express();
-const port = process.env.MEDIA_PORT || 3011;
+const port = MEDIA_PORT;
 
 // exposedHeaders: кросс-доменному коду (pdf.js в клиенте) по умолчанию видны только
 // safelisted-заголовки ответа. Без Accept-Ranges/Content-Range он не видит поддержку
@@ -52,8 +57,8 @@ if (corsOrigins) {
 }
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '350mb' }));
-app.use(express.urlencoded({ limit: '350mb', extended: true }));
+app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ limit: REQUEST_BODY_LIMIT, extended: true }));
 
 // Connect to the database
 mongoose
@@ -61,6 +66,7 @@ mongoose
   .then(() => {
     console.log('Connected to MongoDB');
     initGridFS();
+    checkMediaIndexes(mediaTypes);
   })
   .catch((error) => {
     console.error('MongoDB connection error:', error);
@@ -73,6 +79,7 @@ mediaTypes.forEach((type) => {
 
 // Статистика хранилища — не привязана к типу медиа, поэтому отдельным роутером
 app.use('/stats', createStatsRouter());
+app.use('/limits', createLimitsRouter());
 
 // Список файлов для админки: тип здесь фильтр, а не адрес, — поэтому тоже
 // вне роутеров по типам.

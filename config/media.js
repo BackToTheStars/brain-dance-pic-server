@@ -4,6 +4,14 @@ const OPERATION_DOWNLOAD_AND_SAVE = 'download_and_save';
 const OPERATION_STATS = 'stats';
 const OPERATION_YOUTUBE = 'youtube';
 const OPERATION_LIST = 'list';
+const OPERATION_LIMITS = 'limits';
+const OPERATION_FRAME = 'frame';
+const OPERATION_FRAME_SAVE = 'frame_save';
+
+// Токен загрузки игроку подписывает тот же сервер тем же секретом, и подпись игрока от
+// сервера не отличает: всем операциям вне этого списка нужна служебная метка.
+const CLIENT_OPERATIONS = [OPERATION_UPLOAD];
+const SERVICE_SCOPE = 'service';
 
 const mediaTypes = ['audios', 'videos', 'images', 'pdfs'];
 
@@ -46,11 +54,15 @@ const dMediaTypes = {
 
 // Лимит размера загружаемого файла (multer limits.fileSize). Файл целиком
 // буферизуется в памяти (memoryStorage), поэтому лимит — ещё и защита RAM.
-// Значение по умолчанию совпадает с лимитом тела запроса в media.js.
+// Значение по умолчанию совпадает с лимитом тела запроса.
 const DEFAULT_UPLOAD_LIMIT = 350 * 1024 * 1024;
 const UPLOAD_LIMITS = {
   pdfs: 50 * 1024 * 1024,
 };
+
+// Лимит тела JSON и urlencoded (express.json / express.urlencoded); multipart-загрузку
+// ограничивает не он, а getUploadLimit.
+const REQUEST_BODY_LIMIT = 350 * 1024 * 1024;
 
 const getUploadLimit = (contentType) =>
   UPLOAD_LIMITS[contentType] || DEFAULT_UPLOAD_LIMIT;
@@ -96,10 +108,16 @@ module.exports = {
   OPERATION_STATS,
   OPERATION_YOUTUBE,
   OPERATION_LIST,
+  OPERATION_LIMITS,
+  OPERATION_FRAME,
+  OPERATION_FRAME_SAVE,
+  CLIENT_OPERATIONS,
+  SERVICE_SCOPE,
   mediaTypes,
   getMimeType,
   hasMimeType,
   getUploadLimit,
+  REQUEST_BODY_LIMIT,
   formatSize,
   tooLargeMessage,
   ACCESS_COUNT_WINDOW,

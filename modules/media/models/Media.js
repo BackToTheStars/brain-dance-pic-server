@@ -29,9 +29,49 @@ function getMediaModel(contentType) {
   schema.index({ uploadDate: -1 });
   schema.index({ accessCount: -1 });
   schema.index({ lastAccessAt: -1 });
+  // Запись и имя файла — одна сущность. На базе, где одноимённая запись уже есть,
+  // индекс не строится, и об этом пишет checkMediaIndexes.
+  schema.index({ filename: 1 }, { unique: true });
+  schema.index({ 'metadata.gameId': 1 });
+  schema.index({ 'metadata.gameHash': 1 });
 
   // Return a model with the collection name set to the contentType
   return mongoose.model(contentType, schema, contentType);
 }
 
-module.exports = { getMediaModel };
+const indexName = (fields) =>
+  Object.entries(fields)
+    .map(([field, direction]) => `${field}_${direction}`)
+    .join('_');
+
+// mongoose глотает ошибку построения индекса: сервис стартует молча и без него.
+async function checkMediaIndexes(types) {
+  for (const type of types) {
+    const Media = getMediaModel(type);
+    try {
+      const initError = await Media.init().then(
+        () => null,
+        (error) => error
+      );
+      const built = new Set(
+        (await Media.collection.indexes()).map((index) => index.name)
+      );
+      const missing = Media.schema
+        .indexes()
+        .map(([fields]) => indexName(fields))
+        .filter((name) => !built.has(name));
+
+      if (missing.length > 0) {
+        console.error(
+          `[indexes] ${type}: НЕ ПОСТРОЕНЫ ИНДЕКСЫ ${missing.join(', ')}` +
+            (initError ? ` — ${initError.message}` : '') +
+            ` (одноимённые записи: node scripts/orphans.js --type=${type})`
+        );
+      }
+    } catch (error) {
+      console.error(`[indexes] ${type}: проверка индексов не удалась`, error);
+    }
+  }
+}
+
+module.exports = { getMediaModel, checkMediaIndexes };

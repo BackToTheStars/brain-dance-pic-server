@@ -19,7 +19,7 @@ function saveFileToGridFS(contentType, buffer, filename, metadata) {
     });
 
     writeStream.on('finish', () => {
-      resolve(writeStream.id.toString());
+      resolve(writeStream.id);
     });
 
     writeStream.on('error', (error) => {
@@ -50,26 +50,40 @@ function saveStreamToGridFS(contentType, readStream, filename, metadata) {
     readStream.on('error', fail);
     uploadStream.on('error', fail);
     uploadStream.on('finish', () => {
-      resolve(uploadStream.id.toString());
+      resolve(uploadStream.id);
     });
 
     readStream.pipe(uploadStream);
   });
 }
 
-function downloadFileFromGridFS(contentType, filename, start, end) {
+// По _id, а не по имени: размер в заголовках и байты обязаны быть от одной версии.
+function downloadFileFromGridFS(contentType, fileId, start, end) {
   const bucket = getGridFSBucket(contentType);
   const options = {};
   if (start !== undefined && end !== undefined) {
     options.start = start;
     options.end = end;
   }
-  return bucket.openDownloadStreamByName(filename, options);
+  return bucket.openDownloadStream(fileId, options);
 }
+
+// Актуальная версия одноимённых файлов — последняя. Второй ключ нужен при равном
+// uploadDate: без него find и openDownloadStreamByName выбирали разные версии.
+const NEWEST_FIRST = { uploadDate: -1, _id: -1 };
 
 function getFileInfo(contentType, filename) {
   const bucket = getGridFSBucket(contentType);
-  return bucket.find({ filename }).toArray();
+  return bucket.find({ filename }, { sort: NEWEST_FIRST }).toArray();
+}
+
+async function getNewestFile(contentType, filename) {
+  const bucket = getGridFSBucket(contentType);
+  const [file] = await bucket
+    .find({ filename }, { sort: NEWEST_FIRST, limit: 1 })
+    .toArray();
+
+  return file || null;
 }
 
 async function removeFileFromGridFS(contentType, fileId) {
@@ -87,5 +101,7 @@ module.exports = {
   saveStreamToGridFS,
   downloadFileFromGridFS,
   getFileInfo,
+  getNewestFile,
   removeFileFromGridFS,
+  NEWEST_FIRST,
 };

@@ -2,13 +2,19 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 const {
-  saveFileToGridFS,
   downloadFileFromGridFS,
   getFileInfo,
+  getNewestFile,
   removeFileFromGridFS,
 } = require('../services/gridFs');
 const { getMediaModel } = require('../models/Media');
-const { isViewStart, trackAccess } = require('../services/access');
+const { storeMedia, NAME_TAKEN } = require('../services/store');
+const { buildMetadata } = require('../services/metadata');
+const {
+  isInternalRead,
+  isViewStart,
+  trackAccess,
+} = require('../services/access');
 const {
   getMimeType,
   hasMimeType,
@@ -41,7 +47,12 @@ const isTooLargeError = (error) =>
 // невнятную 500 «На сервере произошла ошибка» — переводим её в 413 с размером лимита.
 function createUploadMiddleware(contentType) {
   const limit = getUploadLimit(contentType);
-  const upload = multer({ storage, limits: { fileSize: limit } });
+  // Браузеры шлют имя файла байтами UTF-8, а multer по умолчанию читает его как latin1.
+  const upload = multer({
+    storage,
+    limits: { fileSize: limit },
+    defParamCharset: 'utf8',
+  });
 
   return (req, res, next) =>
     upload.single('file')(req, res, (err) => {
@@ -106,24 +117,18 @@ function createMediaController(contentType) {
       const filename = `${uuidv4()}.${extension}`;
       const mimetype = getMimeType(contentType, extension);
 
-      const metadata = {
-        ...req.body.metadata,
+      const metadata = buildMetadata(req.body?.metadata, req.payload, {
         mimetype,
         originalname,
         uploader: req.user ? req.user.id : null, // If authentication is used
-      };
-
-      // Save file to GridFS
-      await saveFileToGridFS(contentType, buffer, filename, metadata);
-
-      // Save metadata to MongoDB
-      const media = new Media({
-        filename,
-        metadata,
-        contentType: mimetype,
       });
 
-      await media.save();
+      const media = await storeMedia(contentType, {
+        filename,
+        mimetype,
+        metadata,
+        data: buffer,
+      });
 
       res.json({
         src: `${MEDIA_HOST}/${contentType}/${filename}`,
@@ -133,6 +138,9 @@ function createMediaController(contentType) {
         },
       });
     } catch (error) {
+      if (error.code === NAME_TAKEN) {
+        return res.status(409).json({ message: 'File name is already taken.' });
+      }
       // Наружу — общая фраза: в error.message попадают внутренние подробности
       // (имя хоста mongo, путь, устройство схемы). Причина остаётся в логе.
       console.error(error);
@@ -144,7 +152,7 @@ function createMediaController(contentType) {
 
   async function downloadAndSaveMedia(req, res) {
     try {
-      const { mediaUrl, metadata } = req.body;
+      const { mediaUrl, metadata } = req.body || {};
 
       if (!mediaUrl) {
         return res.status(400).json({ message: 'No media URL provided.' });
@@ -180,23 +188,18 @@ function createMediaController(contentType) {
       });
       const buffer = Buffer.from(response.data);
 
-      const fileMetadata = {
-        ...metadata,
+      const fileMetadata = buildMetadata(metadata, req.payload, {
         mimetype,
         originalUrl: mediaUrl,
         downloader: req.user ? req.user.id : null,
-      };
-
-      await saveFileToGridFS(contentType, buffer, filename, fileMetadata);
-
-      // Save metadata to MongoDB
-      const media = new Media({
-        filename,
-        metadata: fileMetadata,
-        contentType: mimetype,
       });
 
-      await media.save();
+      const media = await storeMedia(contentType, {
+        filename,
+        mimetype,
+        metadata: fileMetadata,
+        data: buffer,
+      });
 
       res.json({
         src: `${MEDIA_HOST}/${contentType}/${filename}`,
@@ -210,6 +213,9 @@ function createMediaController(contentType) {
         return res.status(413).json({
           message: tooLargeMessage(getUploadLimit(contentType)),
         });
+      }
+      if (error.code === NAME_TAKEN) {
+        return res.status(409).json({ message: 'File name is already taken.' });
       }
       console.error(error);
       res.status(500).json({
@@ -231,13 +237,11 @@ function createMediaController(contentType) {
 
       // Access control logic can be added here
 
-      // Get file info from GridFS
-      const files = await getFileInfo(contentType, filename);
-      if (!files || files.length === 0) {
+      const file = await getNewestFile(contentType, filename);
+      if (!file) {
         return res.status(404).send('File not found in storage');
       }
 
-      const file = files[0];
       const fileSize = file.length;
       const contentTypeHeader = media.contentType;
 
@@ -245,7 +249,7 @@ function createMediaController(contentType) {
       // после того, как файл найден: запись без файла спросом не считается.
       // Ответа не ждём и на ошибке записи отдачу не роняем — счётчик здесь
       // побочная телеметрия, а не часть отдачи файла.
-      if (isViewStart(range)) {
+      if (isViewStart(range) && !isInternalRead(req)) {
         trackAccess(Media, media._id).catch((error) => {
           console.error('access tracking failed', error);
         });
@@ -271,6 +275,13 @@ function createMediaController(contentType) {
           // увидел обрыв, а не принял усечённый файл за целый.
           res.destroy(error);
         });
+        // Брошенный клиентом ответ (перемотка, отменённый Range) без abort держит курсор
+        // GridFS с пачкой чанков: замер — около 16 МБ памяти на каждый обрыв.
+        res.on('close', () => {
+          if (!downloadStream.readableEnded) {
+            downloadStream.abort().catch(() => {});
+          }
+        });
         downloadStream.pipe(res);
       };
 
@@ -293,7 +304,7 @@ function createMediaController(contentType) {
         });
 
         pipeToResponse(
-          downloadFileFromGridFS(contentType, filename, start, end + 1)
+          downloadFileFromGridFS(contentType, file._id, start, end + 1)
         );
       } else {
         res.writeHead(200, {
@@ -303,7 +314,7 @@ function createMediaController(contentType) {
           // и качает весь документ целиком вместо ленивой подгрузки страниц
           'Accept-Ranges': 'bytes',
         });
-        pipeToResponse(downloadFileFromGridFS(contentType, filename));
+        pipeToResponse(downloadFileFromGridFS(contentType, file._id));
       }
     } catch (error) {
       console.error(error);
@@ -334,11 +345,11 @@ function createMediaController(contentType) {
         });
       }
 
-      const file = files[0];
-      // Получаем информацию о файле
-      await removeFileFromGridFS(contentType, file._id);
+      // Все одноимённые версии: оставшаяся без записи стала бы сиротой.
+      for (const file of files) {
+        await removeFileFromGridFS(contentType, file._id);
+      }
 
-      // Удаляем метаданные из MongoDB
       await Media.findByIdAndDelete(id);
 
       res.json({ message: 'Media removed successfully', fileMissing: false });

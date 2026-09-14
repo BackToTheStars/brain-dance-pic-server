@@ -1,13 +1,13 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = {
-  // getToken example
-  getToken: function (secret, operation, timestamp, hash) {
+  // getToken example; extra carries scope, hash and gameId
+  getToken: function (secret, operation, timestamp, extra = {}) {
     return jwt.sign(
       {
+        ...extra,
         operation: operation,
         timestamp: timestamp,
-        hash: hash,
       },
       secret
     );

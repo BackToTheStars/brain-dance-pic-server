@@ -1,4 +1,5 @@
 const { getStorageStats } = require('../services/storage');
+const { getLimitsReport } = require('../services/limits');
 
 async function getStats(req, res) {
   try {
@@ -13,6 +14,18 @@ async function getStats(req, res) {
   }
 }
 
+async function getLimits(req, res) {
+  try {
+    res.json(await getLimitsReport());
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'An error occurred during limits collection.',
+    });
+  }
+}
+
 module.exports = {
   getStats,
+  getLimits,
 };

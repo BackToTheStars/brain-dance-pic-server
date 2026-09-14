@@ -5,6 +5,9 @@
 // Обратный случай (запись есть, файла нет) чинится обычным DELETE /<type>/:id,
 // поэтому здесь не разбирается.
 //
+// Тем же проходом отчёт показывает одноимённые версии в GridFS (с записью и без)
+// и одноимённые записи описи. Их скрипт не удаляет никогда.
+//
 // По умолчанию скрипт только отчитывается. Удаление — явным флагом и только
 // с указанием, что именно сносить:
 //
@@ -20,7 +23,8 @@ const mongoose = require('mongoose');
 const { MONGO_URL } = require('../config/db');
 const { mediaTypes, formatSize } = require('../config/media');
 
-const HELP = `Поиск осиротевших файлов в GridFS (файл есть, записи Media нет).
+const HELP = `Поиск осиротевших файлов в GridFS (файл есть, записи Media нет) и одноимённых
+версий и записей (отчёт, не удаляются).
 
   node scripts/orphans.js [--type=<тип>] [--delete (--all | --type=<тип> | --id=<id>[,<id>])]
 
@@ -92,19 +96,34 @@ const MAX_LISTED = 10;
 const formatDate = (date) =>
   date instanceof Date ? date.toISOString().replace('T', ' ').slice(0, 19) : '—';
 
+// Порядок версий как у отдачи: первая в группе имени — та, что отдаётся.
+const SERVED_FIRST = { filename: 1, uploadDate: -1, _id: -1 };
+
+const countBy = (map, key) => map.set(key, (map.get(key) || 0) + 1);
+
+const namesWithMany = (counts) =>
+  [...counts].filter(([, count]) => count > 1).map(([name]) => name);
+
 // Опознание сирот. Разностью двух distinct считать нельзя: GridFS разрешает
 // несколько файлов с одним именем, и distinct по <type>.files схлопывает их в
-// одну строку — два сироты с общим именем превратятся в один. Поэтому имена
-// метаданных берём множеством (их distinct как раз уместен: в Media имя одно
-// на запись), а файлы перебираем курсором, документ за документом.
+// одну строку — два сироты с общим именем превратятся в один. Поэтому и опись, и
+// файлы перебираются курсором, документ за документом: у описи так видно ещё и
+// одноимённые записи.
 async function scanType(db, type) {
   const files = db.collection(`${type}.files`);
-  const knownNames = new Set(await db.collection(type).distinct('filename'));
+  const records = db.collection(type);
+
+  const recordCounts = new Map();
+  let recordsTotal = 0;
+  for await (const record of records.find({}, { projection: { filename: 1 } })) {
+    recordsTotal += 1;
+    countBy(recordCounts, record.filename);
+  }
 
   const orphans = [];
-  // Счётчик только для имён, у которых запись Media есть: одноимённые версии
-  // среди них — не сироты, но и молчать о них нельзя.
+  // Версии по именам: counts — у имён с записью Media, orphanCounts — без неё.
   const counts = new Map();
+  const orphanCounts = new Map();
 
   const cursor = files.find(
     {},
@@ -114,55 +133,125 @@ async function scanType(db, type) {
   let total = 0;
   for await (const file of cursor) {
     total += 1;
-    if (!knownNames.has(file.filename)) {
+    if (!recordCounts.has(file.filename)) {
       orphans.push(file);
+      countBy(orphanCounts, file.filename);
       continue;
     }
-    counts.set(file.filename, (counts.get(file.filename) || 0) + 1);
+    countBy(counts, file.filename);
   }
-
-  const duplicateNames = [...counts]
-    .filter(([, count]) => count > 1)
-    .map(([name]) => name);
 
   // Обратный случай: запись есть, файла нет. Скрипт про него только сообщает —
   // такая запись снимается обычным DELETE /<тип>/:id. Считается
   // даром: имя, для которого не встретилось ни одного файла, в counts не попало.
-  const withoutFile = [...knownNames].filter((name) => !counts.has(name));
+  const withoutFile = [...recordCounts.keys()].filter((name) => !counts.has(name));
 
-  // Подробности по одноимённым добираем отдельным запросом: их единицы, а
+  // Подробности по одноимённым добираем отдельными запросами: их единицы, а
   // держать в памяти все документы ради этого не нужно.
+  const duplicateNames = namesWithMany(counts);
   const duplicates = duplicateNames.length
     ? await files
         .find(
           { filename: { $in: duplicateNames } },
           { projection: { filename: 1, length: 1, uploadDate: 1 } }
         )
+        .sort(SERVED_FIRST)
         .toArray()
     : [];
+
+  const orphanDuplicateNames = new Set(namesWithMany(orphanCounts));
+  const orphanDuplicates = orphans
+    .filter((file) => orphanDuplicateNames.has(file.filename))
+    .sort(
+      (a, b) =>
+        a.filename.localeCompare(b.filename) ||
+        b.uploadDate - a.uploadDate ||
+        String(b._id).localeCompare(String(a._id))
+    );
+
+  const duplicateRecordNames = namesWithMany(recordCounts);
+  const duplicateRecords = duplicateRecordNames.length
+    ? await records
+        .find(
+          { filename: { $in: duplicateRecordNames } },
+          {
+            projection: {
+              filename: 1,
+              uploadDate: 1,
+              'metadata.originalname': 1,
+            },
+          }
+        )
+        .sort(SERVED_FIRST)
+        .toArray()
+    : [];
+
+  // Размер отдаваемой версии для каждого одноимённого имени описи.
+  const servedSize = new Map();
+  if (duplicateRecordNames.length) {
+    const served = await files
+      .find(
+        { filename: { $in: duplicateRecordNames } },
+        { projection: { filename: 1, length: 1 } }
+      )
+      .sort(SERVED_FIRST)
+      .toArray();
+    for (const file of served) {
+      if (!servedSize.has(file.filename)) {
+        servedSize.set(file.filename, file.length);
+      }
+    }
+  }
 
   return {
     type,
     filesTotal: total,
-    metaTotal: knownNames.size,
+    metaTotal: recordCounts.size,
+    recordsTotal,
     orphans,
     duplicates,
+    orphanDuplicates,
+    duplicateRecords,
+    servedSize,
     withoutFile,
   };
 }
 
+// Строки одноимённых версий; при markServed первая в группе имени помечается
+// отдаваемой. Сироты не отдаются вовсе — у них пометки нет.
+function printVersions(list, markServed) {
+  let previous = null;
+  for (const file of list) {
+    const served = markServed && file.filename !== previous;
+    previous = file.filename;
+    console.log(
+      `    ${file._id.toString()}  ${file.filename}  ` +
+        `${formatSize(file.length)}  ${formatDate(file.uploadDate)}` +
+        (served ? '  ← отдаётся' : '')
+    );
+  }
+}
+
+const countNames = (list) => new Set(list.map((item) => item.filename)).size;
+
 function printReport(results) {
   let orphansTotal = 0;
   let bytesTotal = 0;
+  const same = { versionNames: 0, versions: 0, orphanNames: 0, recordNames: 0, records: 0 };
 
   for (const result of results) {
     const bytes = result.orphans.reduce((sum, file) => sum + file.length, 0);
     orphansTotal += result.orphans.length;
     bytesTotal += bytes;
+    same.versionNames += countNames(result.duplicates);
+    same.versions += result.duplicates.length;
+    same.orphanNames += countNames(result.orphanDuplicates);
+    same.recordNames += countNames(result.duplicateRecords);
+    same.records += result.duplicateRecords.length;
 
     console.log(
-      `\n${result.type}: файлов — ${result.filesTotal}, имён в Media — ${result.metaTotal}, ` +
-        `сирот — ${result.orphans.length}` +
+      `\n${result.type}: файлов — ${result.filesTotal}, записей Media — ${result.recordsTotal} ` +
+        `(имён — ${result.metaTotal}), сирот — ${result.orphans.length}` +
         (result.orphans.length ? ` (${formatSize(bytes)})` : '')
     );
 
@@ -174,17 +263,36 @@ function printReport(results) {
     }
 
     if (result.duplicates.length) {
-      const names = new Set(result.duplicates.map((file) => file.filename));
       // Не сироты: запись Media на это имя есть. Какая из версий лишняя —
       // отдельный вопрос, поэтому скрипт их только показывает.
       console.log(
         `  одноимённые версии (запись Media есть, файлов больше одного): ` +
-          `имён — ${names.size}, файлов — ${result.duplicates.length}; не удаляются`
+          `имён — ${countNames(result.duplicates)}, файлов — ${result.duplicates.length}; не удаляются`
       );
-      for (const file of result.duplicates) {
+      printVersions(result.duplicates, true);
+    }
+
+    if (result.orphanDuplicates.length) {
+      console.log(
+        `  одноимённые версии без записи Media (они же в списке сирот выше): ` +
+          `имён — ${countNames(result.orphanDuplicates)}, файлов — ${result.orphanDuplicates.length}`
+      );
+      printVersions(result.orphanDuplicates, false);
+    }
+
+    if (result.duplicateRecords.length) {
+      // Уникальный индекс описи по filename на таком типе не строится.
+      console.log(
+        `  одноимённые записи Media: имён — ${countNames(result.duplicateRecords)}, ` +
+          `записей — ${result.duplicateRecords.length}; не удаляются`
+      );
+      for (const record of result.duplicateRecords) {
+        const size = result.servedSize.get(record.filename);
         console.log(
-          `    ${file._id.toString()}  ${file.filename}  ` +
-            `${formatSize(file.length)}  ${formatDate(file.uploadDate)}`
+          `    ${record._id.toString()}  ${record.filename}  ` +
+            `${formatDate(record.uploadDate)}  ` +
+            `«${record.metadata?.originalname || '—'}»  ` +
+            `отдаётся ${size === undefined ? 'нечего (файла нет)' : formatSize(size)}`
         );
       }
     }
@@ -209,6 +317,11 @@ function printReport(results) {
   console.log(
     `\nИтого сирот — ${orphansTotal}` +
       (orphansTotal ? ` (${formatSize(bytesTotal)})` : '')
+  );
+  console.log(
+    `Итого одноимённых: версий в GridFS с записью — имён ${same.versionNames} ` +
+      `(файлов ${same.versions}), без записи — имён ${same.orphanNames}; ` +
+      `записей Media — имён ${same.recordNames} (записей ${same.records})`
   );
 
   return orphansTotal;

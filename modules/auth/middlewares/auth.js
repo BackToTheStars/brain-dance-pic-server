@@ -1,4 +1,8 @@
 const { JWT_SECRET_STATIC } = require("../../../config/auth");
+const {
+  CLIENT_OPERATIONS,
+  SERVICE_SCOPE,
+} = require("../../../config/media");
 const { getError } = require("../../core/lib/errors");
 const { checkToken } = require("../lib/token");
 
@@ -21,8 +25,14 @@ const authenticateToken = (req, res, next) => {
 
 const checkOperation = (operation) => {
   return (req, res, next) => {
-    if (req?.payload?.operation !== operation) {
+    const payload = req?.payload;
+    if (payload?.operation !== operation) {
       next(getError(`Invalid operation`, 400));
+    } else if (
+      !CLIENT_OPERATIONS.includes(operation) &&
+      payload.scope !== SERVICE_SCOPE
+    ) {
+      next(getError(`Service token required`, 403));
     } else {
       next();
     }

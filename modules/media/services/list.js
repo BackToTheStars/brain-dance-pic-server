@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const { mediaTypes } = require('../../../config/media');
 const { MEDIA_HOST } = require('../../../config/url');
+const { NEWEST_FIRST } = require('./gridFs');
 
 // Страница по умолчанию и её потолок. Таблица админки листается, а не
 // выгружается целиком.
@@ -77,6 +78,23 @@ function parseDate(value, name, errors) {
   return date;
 }
 
+const GAME_ADDRESS_RE = /^[0-9A-Za-z_-]{1,64}$/;
+
+// Адрес игры — точное совпадение с metadata.gameHash.
+function parseGame(value, errors) {
+  if (value === undefined || value === '') return null;
+
+  if (typeof value !== 'string' || !GAME_ADDRESS_RE.test(value)) {
+    errors.push(
+      `game: ожидался один адрес игры (латиница, цифры, - и _, до 64 символов), получено «${value}».`
+    );
+
+    return null;
+  }
+
+  return value;
+}
+
 // Разбор и проверка query. Ошибки собираются все сразу: чинить их по одной,
 // каждый раз перезапрашивая ручку, — то ещё удовольствие.
 function parseListQuery(query = {}) {
@@ -94,6 +112,8 @@ function parseListQuery(query = {}) {
   }
 
   const name = query.name === undefined ? '' : String(query.name).trim();
+
+  const game = parseGame(query.game, errors);
 
   const minSize = parseNumber(query.minSize, 'minSize', errors);
   const maxSize = parseNumber(query.maxSize, 'maxSize', errors);
@@ -134,14 +154,30 @@ function parseListQuery(query = {}) {
   }
 
   return {
-    value: { types, name, minSize, maxSize, from, to, sort, order, page, limit },
+    value: {
+      types,
+      name,
+      game,
+      minSize,
+      maxSize,
+      from,
+      to,
+      sort,
+      order,
+      page,
+      limit,
+    },
   };
 }
 
-// Фильтр по полям самой записи — имя и даты. Размера здесь нет: он лежит в
+// Фильтр по полям самой записи — игра, имя и даты. Размера здесь нет: он лежит в
 // GridFS, и всё, что с ним связано, разбирается ниже отдельно.
-function buildRecordMatch({ name, from, to }) {
+function buildRecordMatch({ name, game, from, to }) {
   const match = {};
+
+  if (game) {
+    match['metadata.gameHash'] = game;
+  }
 
   if (name) {
     const regex = { $regex: escapeRegExp(name), $options: 'i' };
@@ -189,8 +225,7 @@ function withFiles(doc, files) {
   return {
     ...doc,
     // Одноимённых версий может быть несколько; getMedia отдаёт последнюю
-    // (openDownloadStreamByName без revision), поэтому и размер показываем
-    // от неё, а не от первой попавшейся.
+    // (тот же порядок NEWEST_FIRST), поэтому и размер показываем от неё.
     size: newest ? newest.length : null,
     storedAt: newest ? newest.uploadDate : null,
     fileCount: files.length,
@@ -222,7 +257,7 @@ async function collectByPage(db, type, params) {
           { filename: { $in: names } },
           { projection: { _id: 0, filename: 1, length: 1, uploadDate: 1 } }
         )
-        .sort({ uploadDate: -1 })
+        .sort(NEWEST_FIRST)
         .toArray()
     : [];
 
@@ -261,7 +296,7 @@ async function collectWithLookup(db, type, params) {
         // через весь конвейер. Сортировка — ради одноимённых версий, см.
         // withFiles.
         pipeline: [
-          { $sort: { uploadDate: -1 } },
+          { $sort: NEWEST_FIRST },
           { $project: { _id: 0, length: 1, uploadDate: 1 } },
         ],
         as: 'files',
@@ -317,6 +352,8 @@ function toItem(type, doc) {
     originalname: metadata.originalname || null,
     originalUrl: metadata.originalUrl || null,
     title: metadata.title || null,
+    gameHash: metadata.gameHash || null,
+    gameId: metadata.gameId || null,
     uploadDate: doc.uploadDate || null,
     // Ниже — то, чего в записи Media нет: видно только сверкой с GridFS.
     size: doc.size,
