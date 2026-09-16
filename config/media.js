@@ -7,6 +7,7 @@ const OPERATION_LIST = 'list';
 const OPERATION_LIMITS = 'limits';
 const OPERATION_FRAME = 'frame';
 const OPERATION_FRAME_SAVE = 'frame_save';
+const OPERATION_FILES_MAINTENANCE = 'files_maintenance';
 
 // Токен загрузки игроку подписывает тот же сервер тем же секретом, и подпись игрока от
 // сервера не отличает: всем операциям вне этого списка нужна служебная метка.
@@ -111,6 +112,7 @@ module.exports = {
   OPERATION_LIMITS,
   OPERATION_FRAME,
   OPERATION_FRAME_SAVE,
+  OPERATION_FILES_MAINTENANCE,
   CLIENT_OPERATIONS,
   SERVICE_SCOPE,
   mediaTypes,

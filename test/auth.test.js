@@ -12,7 +12,14 @@ const run = (operation, payload) => {
   return result;
 };
 
-const SERVICE_OPERATIONS = ['list', 'stats', 'delete', 'download_and_save', 'youtube'];
+const SERVICE_OPERATIONS = [
+  'list',
+  'stats',
+  'delete',
+  'download_and_save',
+  'youtube',
+  'files_maintenance',
+];
 
 test('service operations need the service scope', () => {
   for (const operation of SERVICE_OPERATIONS) {

@@ -62,3 +62,14 @@ test('the previous-name field of the names script is dropped from the body', () 
     { turnId: 't1', originalname: 'a.png' }
   );
 });
+
+test('the dead keys and the game backfill mark are dropped from the body', () => {
+  assert.deepEqual(
+    buildMetadata(
+      { uploader: 'u', downloader: null, gameBackfill: true, turnId: 't1' },
+      { gameId: 'g', hash: 'abc' },
+      { originalname: 'a.png' }
+    ),
+    { turnId: 't1', originalname: 'a.png', gameId: 'g', gameHash: 'abc' }
+  );
+});

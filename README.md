@@ -43,7 +43,7 @@ YTDLP_SHA256  — строка для файла `yt-dlp` из SHA2-256SUMS то
 В токене лежит операция, и middleware сверяет её с ручкой: без заголовка — 401, с битым
 токеном — 403, с токеном чужой операции — 400 `Invalid operation`. Операции:
 `upload`, `download_and_save`, `delete`, `stats`, `limits`, `list`, `youtube`, `frame`,
-`frame_save`.
+`frame_save`, `files_maintenance`.
 
 **Служебная метка.** Токен загрузки игроку подписывает тот же server тем же секретом, поэтому
 подпись не отличает игрока от сервера. Все операции, кроме `upload`, принимаются только с
@@ -57,7 +57,9 @@ YTDLP_SHA256  — строка для файла `yt-dlp` из SHA2-256SUMS то
 в GridFS, на всех путях записи (`upload`, `download-and-save`, `youtube/download`, сохранение
 кадра). Ключи `gameId` / `gameHash` из тела запроса отбрасываются всегда, как и
 `originalnameLatin1` (его ставит только `scripts/names.js`). Нет `gameId` в токене — нет и
-ключей. Больше `hash` ни с чем не сверяется.
+ключей. Больше `hash` ни с чем не сверяется. Старым файлам пару ставит служебный проход
+`POST /files/game-backfill` (ниже) с меткой `gameBackfill: true`; эта метка и мёртвые ключи
+`uploader` / `downloader` из тела тоже отбрасываются.
 
 Команды для выпуска токена в репозитории нет: `npm run token` звал `scripts/tokens.js`,
 которого не стало ещё в `ec448c7`; мёртвая строка позже убрана из `package.json`. Токен
@@ -116,6 +118,44 @@ curl -H "Authorization: Bearer <токен операции list>" \
   "http://localhost:3011/files?type=images&name=logo&sort=size&order=desc&limit=20"
 ```
 
+## Служебные проходы по metadata: `POST /files/dead-keys`, `POST /files/game-backfill`
+
+Операция `files_maintenance`, служебная. Тело — JSON; ошибка тела — 400 одной строкой со всеми
+причинами. Смотрят оба места: запись описи `<тип>` и все версии имени в `<тип>.files`.
+Списки в ответах обрезаны до `listLimit` (100), счётчики — полные.
+
+**Мёртвые ключи** `uploader` и `downloader` писались первыми версиями сервиса, всегда `null`, и
+никто их не читает; новые файлы их больше не получают.
+
+- `{ "mode": "report" | "apply", "types"?: ["images", …] | "images,pdfs" }` (по умолчанию все типы).
+- Ответ: `{ mode, keys, totals, byType: [ … ], listLimit }`; в `byType[i]` — `records` и `files`
+  (`total` и по каждому ключу `{ null, notNull }`), `notNull` (документы с непустым значением: место,
+  `_id`, имя, ключ, значение до 100 символов), `recordsWithoutFile` и `filesWithoutRecord`
+  (`{ count, names }`). Счётчики — до снятия.
+- `apply` снимает ключ **только со значением `null`** в обоих местах и возвращает `removed`
+  (`{ records: { uploader, downloader }, files: … }` по типу и в `totals`); непустые не трогает;
+  повтор снимает 0. Отката нет: `null` ничего не несёт.
+
+**Игра файла** — пара `gameId` / `gameHash` старым файлам по ссылкам, которые собирает server.
+
+- `report` и `apply`: `{ "mode", "gameId"?, "items": [{ "type", "filename", "gameId", "gameHash" }] }`,
+  не больше 10000 элементов. `type` — тип media, `filename` — системное имя (1–255 символов, без `/`,
+  `\`, управляющих), `gameId` — 24 hex в нижнем регистре, `gameHash` — как фильтр `?game=`. `gameId`
+  запроса (необязательный) — предохранитель: элемент другой игры становится `invalid`.
+- Вердикт файла: `missing` (нет ни записи, ни файла), `recordOnly`, `fileOnly`, `badMetadata`
+  (`metadata` не объект), `conflict` (где-то стоит другая или неполная пара — список `existing`),
+  `same` (везде та же пара), `pending` (к записи). Негодный элемент — `invalid` с причинами; один
+  файл с разными парами в одном запросе — `ambiguous`; одинаковые элементы схлопываются (`repeated`).
+- `apply` пишет `gameId`, `gameHash` и `gameBackfill: true` только у `pending` и только туда, где нет
+  ни `gameId`, ни `gameHash` (опись и все версии GridFS) — условным `updateMany`; уже стоящая пара
+  не перезаписывается никогда; повтор пишет 0.
+- Ответ: `{ mode, gameId, items: { received, repeated, invalid, ambiguous, files }, counts,
+  toWrite: { records, files }, written (только apply), byType, marked, lists, listLimit }`; `marked` —
+  сколько документов с меткой (в рамках `gameId` запроса) после операции.
+- `revert`: `{ "mode": "revert", "gameId"?, "types"? }` — без `items`; снимает `gameId`, `gameHash`
+  и метку **только у документов с `gameBackfill: true`** (с `gameId` — только этой игры). Ответ:
+  `{ mode, gameId, types, reverted: { records, files, byType }, marked }`.
+
 ## Учёт обращений
 
 `GET /<тип>/:filename` считает обращения: `accessCount` и `lastAccessAt` в записи `Media`.
@@ -128,6 +168,11 @@ curl -H "Authorization: Bearer <токен операции list>" \
 обращение к файлу и есть признак востребованности. У записей, сделанных до этой волны,
 полей нет; первое же обращение их заводит, а в выдаче `/files` они читаются как `0` и
 «не обращались».
+
+`Range` разбирается по RFC 9110 (`modules/media/services/range.js`): `bytes=-N` — последние N байт
+(N не меньше размера — весь файл, 206), конец за размером усекается, начало не меньше размера —
+416 с `Content-Range: bytes */<размер>`; негодная запись и несколько диапазонов игнорируются —
+200 и весь файл. Суффиксный диапазон считается началом просмотра, только если покрыл файл с нуля.
 
 Не считается чтение самим сервисом: ffmpeg кадра из видео шлёт заголовок
 `x-media-internal-read` со случайным значением, которое знает только процесс media.
@@ -265,5 +310,6 @@ node scripts/names.js --revert        вернуть прежние значен
 
 ## Тесты
 
-`npm test` — `node --test` без зависимостей: служебная метка, сборка `metadata`, фильтр
+`npm test` — `node --test` без зависимостей: служебная метка, сборка `metadata`, разбор `Range`,
+разбор тела и вердикты служебных проходов, фильтр
 `game`, признак испорченного имени, разбор лимитов nginx и cgroup, `t` и имя кадра.

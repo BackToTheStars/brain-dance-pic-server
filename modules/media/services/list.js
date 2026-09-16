@@ -449,6 +449,7 @@ module.exports = {
   MAX_LIMIT,
   MAX_PAGE,
   SORT_FIELDS,
+  GAME_ADDRESS_RE,
   parseListQuery,
   listMedia,
 };

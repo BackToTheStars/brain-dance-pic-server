@@ -10,6 +10,7 @@ const {
 const { getMediaModel } = require('../models/Media');
 const { storeMedia, NAME_TAKEN } = require('../services/store');
 const { buildMetadata } = require('../services/metadata');
+const { parseRange } = require('../services/range');
 const {
   isInternalRead,
   isViewStart,
@@ -120,7 +121,6 @@ function createMediaController(contentType) {
       const metadata = buildMetadata(req.body?.metadata, req.payload, {
         mimetype,
         originalname,
-        uploader: req.user ? req.user.id : null, // If authentication is used
       });
 
       const media = await storeMedia(contentType, {
@@ -191,7 +191,6 @@ function createMediaController(contentType) {
       const fileMetadata = buildMetadata(metadata, req.payload, {
         mimetype,
         originalUrl: mediaUrl,
-        downloader: req.user ? req.user.id : null,
       });
 
       const media = await storeMedia(contentType, {
@@ -227,7 +226,6 @@ function createMediaController(contentType) {
   async function getMedia(req, res) {
     try {
       const { filename } = req.params;
-      const range = req.headers.range;
 
       // Get file info from MongoDB
       const media = await Media.findOne({ filename });
@@ -244,6 +242,7 @@ function createMediaController(contentType) {
 
       const fileSize = file.length;
       const contentTypeHeader = media.contentType;
+      const range = parseRange(req.headers.range, fileSize);
 
       // Учёт обращений — только начало просмотра и только
       // после того, как файл найден: запись без файла спросом не считается.
@@ -285,16 +284,16 @@ function createMediaController(contentType) {
         downloadStream.pipe(res);
       };
 
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      if (range.kind === 'unsatisfiable') {
+        res
+          .status(416)
+          .set('Content-Range', `bytes */${fileSize}`)
+          .send('Requested range not satisfiable');
+        return;
+      }
 
-        if (start >= fileSize || end >= fileSize) {
-          res.status(416).send('Requested range not satisfiable');
-          return;
-        }
-
+      if (range.kind === 'partial') {
+        const { start, end } = range;
         const chunksize = end - start + 1;
         res.writeHead(206, {
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,

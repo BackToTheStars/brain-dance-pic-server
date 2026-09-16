@@ -1,5 +1,13 @@
-// Игру ставит только токен, прежнее имя — только scripts/names.js: из тела эти ключи не берутся.
-const RESERVED_KEYS = ['gameId', 'gameHash', 'originalnameLatin1'];
+// Игру ставит только токен или проход по игре файлов (с меткой gameBackfill), прежнее имя —
+// только scripts/names.js; uploader и downloader — мёртвые ключи. Из тела эти ключи не берутся.
+const RESERVED_KEYS = [
+  'gameId',
+  'gameHash',
+  'gameBackfill',
+  'originalnameLatin1',
+  'uploader',
+  'downloader',
+];
 
 const isPlainObject = (value) =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
