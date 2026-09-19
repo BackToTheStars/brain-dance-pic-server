@@ -21,10 +21,27 @@ test('no gameId in the token means no game keys at all', () => {
   assert.deepEqual(gameFromPayload(undefined), {});
 });
 
-test('empty or non-string hash gives gameId only', () => {
-  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: '' }), { gameId: 'g1' });
-  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: 5 }), { gameId: 'g1' });
-  assert.deepEqual(gameFromPayload({ gameId: 'g1' }), { gameId: 'g1' });
+test('a missing, empty or non-string hash leaves no half of the pair', () => {
+  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: '' }), {});
+  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: 5 }), {});
+  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: null }), {});
+  assert.deepEqual(gameFromPayload({ gameId: 'g1', hash: ['abc'] }), {});
+  assert.deepEqual(gameFromPayload({ gameId: 'g1' }), {});
+});
+
+test('a half pair never reaches the metadata of a new file', () => {
+  assert.deepEqual(
+    buildMetadata({ turnId: 't1' }, { gameId: 'g1' }, { mimetype: 'image/png' }),
+    { turnId: 't1', mimetype: 'image/png' }
+  );
+  assert.deepEqual(
+    buildMetadata(
+      { gameId: 'forged', gameHash: 'forged' },
+      { gameId: 'g1', hash: '' },
+      { mimetype: 'image/png' }
+    ),
+    { mimetype: 'image/png' }
+  );
 });
 
 test('game keys from the body are always dropped', () => {

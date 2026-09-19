@@ -199,9 +199,11 @@ async function extractFrame(filename, t, { signal } = {}) {
     throw frameError(ERR_BUSY, 'Уже снимаются другие кадры, повторите через несколько секунд.');
   }
   running += 1;
-  const dir = createJobDir();
+  // Каталог создаётся уже под защитой: отказ tmp до try занимал слот до перезапуска сервиса.
+  let dir = null;
 
   try {
+    dir = createJobDir();
     const url = `${MEDIA_LOOPBACK_URL}/videos/${encodeURIComponent(filename)}`;
     const { duration } = await probeVideo(url, signal);
     if (duration !== null && t > duration) {
@@ -226,8 +228,11 @@ async function extractFrame(filename, t, { signal } = {}) {
 
     return { duration, mimetype: FRAME_MIMETYPE, data: fs.readFileSync(out) };
   } finally {
-    removeJobDir(dir);
+    // Слот освобождается раньше уборки: что бы ни случилось с каталогом, он не уносит слот.
     running -= 1;
+    if (dir) {
+      removeJobDir(dir);
+    }
   }
 }
 

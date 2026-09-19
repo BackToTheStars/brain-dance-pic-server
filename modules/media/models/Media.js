@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isDeepStrictEqual } = require('util');
 
 function getMediaModel(contentType) {
   // Одна и та же модель нужна нескольким модулям (media и youtube — оба про
@@ -44,28 +45,105 @@ const indexName = (fields) =>
     .map(([field, direction]) => `${field}_${direction}`)
     .join('_');
 
+const show = (value) => (value === undefined ? 'нет' : JSON.stringify(value));
+
+const sameKey = (fields, key = {}) => {
+  const expected = Object.entries(fields);
+  const actual = Object.entries(key);
+
+  return (
+    expected.length === actual.length &&
+    expected.every(
+      ([field, direction], position) =>
+        actual[position][0] === field &&
+        String(actual[position][1]) === String(direction)
+    )
+  );
+};
+
+// Имя индекса ничего не гарантирует: под ним может лежать другой ключ или тот же ключ
+// без unique — запросы работают, а ограничение не действует.
+function indexProblems(fields, options, index) {
+  const problems = [];
+
+  if (!sameKey(fields, index.key)) {
+    problems.push(`ключ ${show(index.key)} вместо ${show(fields)}`);
+  }
+  for (const flag of ['unique', 'sparse']) {
+    if (Boolean(options[flag]) !== Boolean(index[flag])) {
+      problems.push(
+        `${flag}: ожидалось ${Boolean(options[flag])}, в базе ${Boolean(index[flag])}`
+      );
+    }
+  }
+  if (
+    !isDeepStrictEqual(options.partialFilterExpression, index.partialFilterExpression)
+  ) {
+    problems.push(
+      `partialFilterExpression: ожидалось ${show(options.partialFilterExpression)}, ` +
+        `в базе ${show(index.partialFilterExpression)}`
+    );
+  }
+  // В collation mongo дописывает значения по умолчанию, поэтому сверяются объявленные
+  // ключи; не объявлена в схеме — в базе её быть не должно.
+  if (options.collation) {
+    const actual = index.collation || {};
+    const differs = Object.entries(options.collation)
+      .filter(([key, value]) => !isDeepStrictEqual(actual[key], value))
+      .map(([key]) => key);
+    if (differs.length > 0) {
+      problems.push(`collation: расходится по ${differs.join(', ')}`);
+    }
+  } else if (index.collation) {
+    problems.push(`collation: в базе ${show(index.collation)}, в схеме нет`);
+  }
+
+  return problems;
+}
+
 // mongoose глотает ошибку построения индекса: сервис стартует молча и без него.
+// Чужие индексы не трогаются: расхождение только сообщается.
 async function checkMediaIndexes(types) {
   for (const type of types) {
     const Media = getMediaModel(type);
+    const hint = ` (одноимённые записи: node scripts/orphans.js --type=${type})`;
     try {
       const initError = await Media.init().then(
         () => null,
         (error) => error
       );
-      const built = new Set(
-        (await Media.collection.indexes()).map((index) => index.name)
+      // Отдельно и всегда: при совпавших именах отказ init означает, что на месте
+      // ожидаемого индекса остался прежний.
+      if (initError) {
+        console.error(
+          `[indexes] ${type}: ПОСТРОЕНИЕ ИНДЕКСОВ ОТКЛОНЕНО — ${initError.message}${hint}`
+        );
+      }
+
+      const built = new Map(
+        (await Media.collection.indexes()).map((index) => [index.name, index])
       );
-      const missing = Media.schema
-        .indexes()
-        .map(([fields]) => indexName(fields))
-        .filter((name) => !built.has(name));
+      const missing = [];
+      for (const [fields, options = {}] of Media.schema.indexes()) {
+        const name = options.name || indexName(fields);
+        const index = built.get(name);
+        if (!index) {
+          missing.push(name);
+          continue;
+        }
+        const problems = indexProblems(fields, options, index);
+        if (problems.length > 0) {
+          console.error(
+            `[indexes] ${type}: ИНДЕКС ${name} НЕ ДАЁТ ОЖИДАЕМОЙ ГАРАНТИИ — ` +
+              problems.join('; ') +
+              (options.unique ? hint : '')
+          );
+        }
+      }
 
       if (missing.length > 0) {
         console.error(
-          `[indexes] ${type}: НЕ ПОСТРОЕНЫ ИНДЕКСЫ ${missing.join(', ')}` +
-            (initError ? ` — ${initError.message}` : '') +
-            ` (одноимённые записи: node scripts/orphans.js --type=${type})`
+          `[indexes] ${type}: НЕ ПОСТРОЕНЫ ИНДЕКСЫ ${missing.join(', ')}${hint}`
         );
       }
     } catch (error) {

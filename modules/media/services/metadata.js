@@ -13,18 +13,19 @@ const isPlainObject = (value) =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // Игра берётся только из токена: тело запроса шлёт кто угодно, токен подписан сервером.
+// Пара пишется целиком либо не пишется вовсе: файл с одним gameId не находится по адресу,
+// а проход «игра старых файлов» его не чинит — он пишет только туда, где нет обоих ключей.
 function gameFromPayload(payload) {
   const gameId = payload?.gameId;
+  const hash = payload?.hash;
   if (gameId === undefined || gameId === null || gameId === '') {
     return {};
   }
-
-  const game = { gameId: String(gameId) };
-  if (typeof payload.hash === 'string' && payload.hash !== '') {
-    game.gameHash = payload.hash;
+  if (typeof hash !== 'string' || hash === '') {
+    return {};
   }
 
-  return game;
+  return { gameId: String(gameId), gameHash: hash };
 }
 
 // Строка вместо объекта (поле формы metadata) раньше раскладывалась по символам.
