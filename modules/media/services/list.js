@@ -95,6 +95,17 @@ function parseGame(value, errors) {
   return value;
 }
 
+// Флаг «без игры» — как game, единственное принятое значение 1, иначе явная
+// ошибка вместо молчаливого false на опечатке.
+function parseWithoutGame(value, errors) {
+  if (value === undefined || value === '') return false;
+  if (value === '1') return true;
+
+  errors.push(`withoutGame: ожидалось 1, получено «${value}».`);
+
+  return false;
+}
+
 // Разбор и проверка query. Ошибки собираются все сразу: чинить их по одной,
 // каждый раз перезапрашивая ручку, — то ещё удовольствие.
 function parseListQuery(query = {}) {
@@ -113,7 +124,19 @@ function parseListQuery(query = {}) {
 
   const name = query.name === undefined ? '' : String(query.name).trim();
 
+  // Игру выбирает только один параметр: game и withoutGame сразу — не
+  // молчаливый приоритет одного из них, а отказ.
+  const gameProvided = query.game !== undefined && query.game !== '';
+  const withoutGameProvided =
+    query.withoutGame !== undefined && query.withoutGame !== '';
+  if (gameProvided && withoutGameProvided) {
+    errors.push(
+      'game и withoutGame нельзя задавать одновременно: игру выбирает только один из параметров.'
+    );
+  }
+
   const game = parseGame(query.game, errors);
+  const withoutGame = parseWithoutGame(query.withoutGame, errors);
 
   const minSize = parseNumber(query.minSize, 'minSize', errors);
   const maxSize = parseNumber(query.maxSize, 'maxSize', errors);
@@ -158,6 +181,7 @@ function parseListQuery(query = {}) {
       types,
       name,
       game,
+      withoutGame,
       minSize,
       maxSize,
       from,
@@ -172,11 +196,15 @@ function parseListQuery(query = {}) {
 
 // Фильтр по полям самой записи — игра, имя и даты. Размера здесь нет: он лежит в
 // GridFS, и всё, что с ним связано, разбирается ниже отдельно.
-function buildRecordMatch({ name, game, from, to }) {
+function buildRecordMatch({ name, game, withoutGame, from, to }) {
   const match = {};
 
   if (game) {
     match['metadata.gameHash'] = game;
+  } else if (withoutGame) {
+    // На данных стенда «нет игры» — всегда отсутствие поля; null и пустая строка
+    // ловятся тем же $in на случай других данных.
+    match['metadata.gameHash'] = { $in: [null, ''] };
   }
 
   if (name) {
